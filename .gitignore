@@ -1,0 +1,15 @@
+# Ignore secrets and temporary files
+.env
+__pycache__/
+*.pyc
+
+# Ignore virtual environments
+venv/
+
+# Ignore output files
+output/
+labeled_articles.csv
+
+# Ignore large or sensitive folders
+Desktop/
+OneDrive*/
