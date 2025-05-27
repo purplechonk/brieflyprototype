@@ -1,8 +1,10 @@
 #!/bin/bash
 
-# Force clean install of correct telegram bot
-pip uninstall -y telegram telegram-bot python-telegram-bot || true
-pip install python-telegram-bot==13.15 pandas python-dotenv requests
+# Uninstall broken versions
+pip uninstall -y telegram telegram-bot || true
 
-# Start your bot
+# Install only the correct one
+pip install python-telegram-bot==13.15 pandas python-dotenv requests urllib3
+
+# Start bot
 python label_bot.py

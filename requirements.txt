@@ -1,4 +1,5 @@
 python-telegram-bot==13.15
-python-dotenv
 pandas
+python-dotenv
 requests
+urllib3
