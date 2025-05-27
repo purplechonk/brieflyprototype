@@ -7,7 +7,7 @@ __pycache__/
 venv/
 
 # Ignore output files
-output/
+# output/
 labeled_articles.csv
 
 # Ignore large or sensitive folders

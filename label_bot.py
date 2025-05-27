@@ -40,7 +40,12 @@ def load_existing_labels():
 df = load_recent_articles()
 df = df.reset_index(drop=True)
 if 'uri' not in df.columns:
-    df['uri'] = df['url']  # fallback
+    if 'url' in df.columns:
+        df['uri'] = df['url']
+    else:
+        # Generate fake URIs from index if both are missing
+        df['uri'] = df.index.astype(str)
+
 
 user_sent_index = {}  # user_id → current index
 
