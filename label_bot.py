@@ -23,7 +23,7 @@ def load_recent_articles():
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT id, uri, title, body, url
+                SELECT uri, title, body, url
                 FROM articles
                 WHERE source_date >= %s
             """, ((datetime.now() - timedelta(days=LOOKBACK_DAYS)).date(),))
