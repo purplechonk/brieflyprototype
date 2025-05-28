@@ -226,7 +226,7 @@ def main():
 
     df = pd.DataFrame(all_articles)
     save_articles_to_db(df)
-    print(f"Exported {len(df)} total articles to {raw_csv}")
+    print(f"Exported {len(df)} total articles into the database.")
 
 if __name__ == "__main__":
     main()
