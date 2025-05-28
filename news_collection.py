@@ -194,7 +194,7 @@ def save_articles_to_db(df):
 
         for _, row in df.iterrows():
             cursor.execute("""
-                INSERT INTO articles (uri, title, body, url, category, sub_category, source_date)
+                INSERT INTO articles (uri, title, body, url, category, sub_category, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (uri) DO NOTHING;
             """, (

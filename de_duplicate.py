@@ -37,11 +37,13 @@ def deduplicate_today_articles():
         cur.execute("""
             INSERT INTO articles (
                 uri, title, body, url, published_at,
-                sentiment, source, topic, created_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                sentiment, source, topic, created_at,
+                category, "sub-category"
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             row["uri"], row["title"], row["body"], row["url"], row["published_at"],
-            row["sentiment"], row["source"], row["topic"], row["created_at"]
+            row["sentiment"], row["source"], row["topic"], row["created_at"],
+            row.get("category"), row.get("sub-category")
         ))
 
     conn.commit()

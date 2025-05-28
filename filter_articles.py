@@ -13,6 +13,7 @@ def filter_articles_from_db():
 
     # Connect to PostgreSQL
     conn = psycopg2.connect(DATABASE_URL)
+    cur = conn.cursor()
 
     # Load today's deduplicated articles
     df = pd.read_sql("""
@@ -27,17 +28,17 @@ def filter_articles_from_db():
     original_count = len(df)
 
     # Apply filtering rules
-    df = df[df['sentiment'] > -0.5]
-    df = df[df['body'].str.len() > 500]
+    passed = df[(df['sentiment'] > -0.5) & (df['body'].str.len() > 500)]
+    failed = df[~df.index.isin(passed.index)]
 
-    # Save for manual review or downstream use
-    output_dir = os.path.join("output", today.strftime('%Y-%m-%d'))
-    os.makedirs(output_dir, exist_ok=True)
-    filtered_csv = os.path.join(output_dir, "geopol_articles_final.csv")
-    df.to_csv(filtered_csv, index=False)
+    # Delete failing articles from DB
+    for uri in failed["uri"]:
+        cur.execute("DELETE FROM articles WHERE uri = %s AND created_at::date = %s", (uri, today))
 
-    print(f"✅ Filtered {len(df)} out of {original_count} articles.")
+    conn.commit()
 
+    print(f"✅ Filtered {len(passed)} / {original_count} articles.")
+    cur.close()
     conn.close()
 
 if __name__ == "__main__":
