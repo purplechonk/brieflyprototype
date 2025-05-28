@@ -43,14 +43,14 @@ def get_labeled_uris(user_id):
         conn.close()
 
 # Save label to PostgreSQL
-def save_label(user_id, uri, title, label):
+def save_label(user_id, uri, label):
     conn = get_connection()
     try:
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO labels (user_id, uri, label)
                 VALUES (%s, %s, %s, %s, %s)
-            """, (user_id, uri, label, datetime.now()))
+            """, (user_id, uri, label))
         conn.commit()
     finally:
         conn.close()
@@ -105,7 +105,7 @@ def handle_label(update: Update, context: CallbackContext):
     label = int(label)
 
     article = df[df['uri'] == uri].iloc[0]
-    save_label(user_id, uri, article['title'], label)
+    save_label(user_id, uri, label)
 
     query.edit_message_reply_markup(reply_markup=None)
     query.edit_message_text(f"Labeled as {'👍 Good' if label == 1 else '👎 Not useful'}.\nUse /label for more.")
