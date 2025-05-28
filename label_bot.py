@@ -49,7 +49,7 @@ def save_label(user_id, uri, label):
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO labels (user_id, uri, label)
-                VALUES (%s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s)
             """, (user_id, uri, label))
         conn.commit()
     finally:
