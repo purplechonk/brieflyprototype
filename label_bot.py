@@ -25,7 +25,7 @@ def load_recent_articles():
             cur.execute("""
                 SELECT uri, title, body, url
                 FROM articles
-                WHERE source_date >= %s
+                WHERE created_at >= %s
             """, ((datetime.now() - timedelta(days=LOOKBACK_DAYS)).date(),))
             rows = cur.fetchall()
             return pd.DataFrame(rows, columns=["id", "uri", "title", "body", "url"])
