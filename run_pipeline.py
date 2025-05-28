@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")  # Replace with your actual ID or set in .env
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")  # Should be the full group ID, e.g. -1002243640008
+THREAD_ID = os.getenv("TELEGRAM_THREAD_ID")  # This is the topic/thread ID, e.g. 1981
 
 def send_telegram_message(message: str):
     if not BOT_TOKEN or not CHAT_ID:
@@ -19,6 +20,10 @@ def send_telegram_message(message: str):
         "text": message,
         "parse_mode": "Markdown"
     }
+
+    # If thread ID is set, include it in the message payload
+    if THREAD_ID:
+        data["message_thread_id"] = int(THREAD_ID)
 
     try:
         response = requests.post(url, data=data)
