@@ -37,7 +37,7 @@ def get_labeled_uris(user_id):
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT article_uri FROM labels WHERE user_id = %s", (user_id,))
+            cur.execute("SELECT uri FROM labels WHERE user_id = %s", (user_id,))
             return [row[0] for row in cur.fetchall()]
     finally:
         conn.close()
