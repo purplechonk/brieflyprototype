@@ -21,7 +21,7 @@ def send_telegram_message(message: str):
         "parse_mode": "Markdown"
     }
 
-    # If thread ID is set, include it in the message payload
+    # If thread ID is set, include it in the message pay load
     if THREAD_ID:
         data["message_thread_id"] = int(THREAD_ID)
 
