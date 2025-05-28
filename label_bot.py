@@ -48,9 +48,9 @@ def save_label(user_id, uri, title, label):
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO labels (user_id, article_uri, title, label, timestamp)
+                INSERT INTO labels (user_id, uri, label)
                 VALUES (%s, %s, %s, %s, %s)
-            """, (user_id, uri, title, label, datetime.now()))
+            """, (user_id, uri, label, datetime.now()))
         conn.commit()
     finally:
         conn.close()
