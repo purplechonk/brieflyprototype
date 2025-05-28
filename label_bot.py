@@ -28,7 +28,7 @@ def load_recent_articles():
                 WHERE created_at >= %s
             """, ((datetime.now() - timedelta(days=LOOKBACK_DAYS)).date(),))
             rows = cur.fetchall()
-            return pd.DataFrame(rows, columns=["id", "uri", "title", "body", "url"])
+            return pd.DataFrame(rows, columns=["uri", "title", "body", "url"])
     finally:
         conn.close()
 
