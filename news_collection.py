@@ -5,11 +5,16 @@
 from eventregistry import *
 import pandas as pd
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
+import psycopg2
 import os
 
 # Initialize EventRegistry client (replace with your API key)
 API_KEY = "4669b6ea-fa93-40b1-ad2c-1714cc3727b4"
 er = EventRegistry(apiKey=API_KEY)
+
+load_dotenv()
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 def _build_query(base_query):
     """
@@ -175,6 +180,40 @@ def _fetch_topic(base_query, topic_name):
     print(f"Retrieved {len(articles)} articles for sub-category: {topic_name}")
     return articles
 
+def save_articles_to_db(df):
+    """
+    Save articles DataFrame to PostgreSQL 'articles' table.
+    """
+    if df.empty:
+        print("⚠️ No articles to save.")
+        return
+
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cursor = conn.cursor()
+
+        for _, row in df.iterrows():
+            cursor.execute("""
+                INSERT INTO articles (uri, title, body, url, category, sub_category, source_date)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (uri) DO NOTHING;
+            """, (
+                row.get("uri", row.get("url")),
+                row.get("title"),
+                row.get("body"),
+                row.get("url"),
+                row.get("category"),
+                row.get("sub-category"),
+                datetime.now().strftime('%Y-%m-%d')
+            ))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+        print(f"✅ Saved {len(df)} articles to the database.")
+    except Exception as e:
+        print(f"❌ Error saving to database: {e}")
+
 def main():
     today = datetime.now().strftime('%Y-%m-%d')
     output_dir = os.path.join("output", today)
@@ -186,8 +225,7 @@ def main():
     all_articles.extend(fetch_trump(today, today))
 
     df = pd.DataFrame(all_articles)
-    raw_csv = os.path.join(output_dir, "geopol_articles_raw.csv")
-    df.to_csv(raw_csv, index=False)
+    save_articles_to_db(df)
     print(f"Exported {len(df)} total articles to {raw_csv}")
 
 if __name__ == "__main__":
