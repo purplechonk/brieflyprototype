@@ -175,9 +175,9 @@ def _fetch_topic(base_query, topic_name):
     ):
         data = art.copy()
         data["category"] = "geopolitics"
-        data["sub-category"] = topic_name
+        data["sub_category"] = topic_name
         articles.append(data)
-    print(f"Retrieved {len(articles)} articles for sub-category: {topic_name}")
+    print(f"Retrieved {len(articles)} articles for sub_category: {topic_name}")
     return articles
 
 def save_articles_to_db(df):
@@ -203,7 +203,7 @@ def save_articles_to_db(df):
                 row.get("body"),
                 row.get("url"),
                 row.get("category"),
-                row.get("sub-category"),
+                row.get("sub_category"),
                 datetime.now().strftime('%Y-%m-%d')
             ))
 

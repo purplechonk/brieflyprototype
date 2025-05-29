@@ -38,12 +38,12 @@ def deduplicate_today_articles():
             INSERT INTO articles (
                 uri, title, body, url, published_at,
                 sentiment, source, topic, created_at,
-                category, "sub-category"
+                category, "sub_category"
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             row["uri"], row["title"], row["body"], row["url"], row["published_at"],
             row["sentiment"], row["source"], row["topic"], row["created_at"],
-            row.get("category"), row.get("sub-category")
+            row.get("category"), row.get("sub_category")
         ))
 
     conn.commit()
