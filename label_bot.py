@@ -1,4 +1,4 @@
-# Revised label_bot.py with one-article labeling flow and post-label status
+# Revised label_bot.py with early exit on 'Not Useful' and working /status command
 
 import os
 import pandas as pd
@@ -67,14 +67,29 @@ def save_detailed_label(user_id, session):
             cur.execute("""
                 INSERT INTO detailed_labels (user_id, uri, useful, category, subcategory, purpose)
                 VALUES (%s, %s, %s, %s, %s, %s)
-            """, (user_id, session['uri'], session['useful'], session['category'], session['subcategory'], session['purpose']))
+            """, (user_id, session['uri'], session['useful'], session.get('category'), session.get('subcategory'), session.get('purpose')))
         conn.commit()
     finally:
         conn.close()
 
 
 def start(update: Update, context: CallbackContext):
-    update.message.reply_text("Welcome! Use /label to begin tagging articles.")
+    user = update.effective_user
+    welcome_message = (
+        f"👋 Hello {user.first_name}!\n"
+        "Welcome to the News Labeling Bot.\n\n"
+        "Use /label to begin tagging articles or /status to check your progress."
+    )
+    update.message.reply_text(welcome_message)
+
+
+def status(update: Update, context: CallbackContext):
+    user_id = update.message.chat_id
+    df = load_articles()
+    labeled = len(get_labeled_uris(user_id))
+    total = len(df)
+    remaining = total - labeled
+    update.message.reply_text(f"🧾 Status:\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}")
 
 
 def label(update: Update, context: CallbackContext):
@@ -107,7 +122,18 @@ def ask_category(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
     user_id = query.message.chat_id
-    user_sessions[user_id]['useful'] = query.data.endswith("yes")
+    is_useful = query.data.endswith("yes")
+    user_sessions[user_id]['useful'] = is_useful
+
+    if not is_useful:
+        # Save only usefulness result and skip rest
+        save_detailed_label(user_id, user_sessions[user_id])
+        df = load_articles()
+        labeled = len(get_labeled_uris(user_id))
+        total = len(df)
+        remaining = total - labeled
+        query.edit_message_text(f"❌ Marked as Not Useful.\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}\n\nUse /label to tag another article.")
+        return ConversationHandler.END
 
     buttons = [[InlineKeyboardButton(cat, callback_data=f"cat|{cat}")] for cat in CATEGORIES.keys()]
     query.edit_message_text("Which category does this article fall under?", reply_markup=InlineKeyboardMarkup(buttons))
@@ -151,7 +177,6 @@ def end_label(update: Update, context: CallbackContext):
 
     save_detailed_label(user_id, user_sessions[user_id])
 
-    # Show status
     df = load_articles()
     labeled = len(get_labeled_uris(user_id))
     total = len(df)
@@ -181,6 +206,7 @@ def main():
     )
 
     dp.add_handler(CommandHandler('start', start))
+    dp.add_handler(CommandHandler('status', status))
     dp.add_handler(conv_handler)
 
     print("✅ Detailed labeling bot running...")
