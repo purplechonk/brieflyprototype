@@ -34,4 +34,4 @@ def send_telegram_message(message: str):
     except Exception as e:
         print(f"❌ Error sending Telegram message: {e}")
 
-send_telegram_message("📰 New articles for labeling are now ready!\nUse /label to begin reviewing.")
+send_telegram_message("📰 New articles for labeling are now ready!\nPM me to start reviewing.")

@@ -1,125 +1,189 @@
+# Revised label_bot.py with one-article labeling flow and post-label status
+
 import os
 import pandas as pd
 import psycopg2
-from datetime import datetime, timedelta
+from datetime import datetime
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Updater, CallbackContext, CommandHandler, CallbackQueryHandler
+from telegram.ext import (Updater, CallbackContext, CommandHandler, CallbackQueryHandler,
+                          ConversationHandler, MessageHandler, Filters)
 
 # Load environment variables
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
-LOOKBACK_DAYS = 3
-BATCH_SIZE = 5
 
-# Database connection
+LOOKBACK_DAYS = 3
+
+# Define conversation states
+ASK_USEFUL, ASK_CATEGORY, ASK_SUBCATEGORY, ASK_PURPOSE = range(4)
+
+# Categories and Subcategories
+CATEGORIES = {
+    "Geopolitics": ["Great-Power Competition", "Conflict and Security", "International Trade", "International Institutions"],
+    "Economy": ["Economic Data and Outlook", "Economic Policy", "Financial Markets", "Southeast Asian Economies"],
+    "Technology": ["Artificial Intelligence", "Digital Transformation and Automation", "Cybersecurity and Data Privacy", "Emerging Technologies"],
+    "ESG": ["Climate News and Agreements", "Renewable Energy", "Diversity, Equity and Inclusion", "Governance"],
+    "Businesses": ["Companies", "Mergers and Acquisitions", "Property and Infrastructure", "Startups"],
+    "Government": ["Southeast Asian Politics", "Government Initiatives", "Technology Regulation and Policy", "Climate Regulation and Policy"],
+    "Society": ["Consumer Trends"]
+}
+
+user_sessions = {}  # Tracks session info by user_id
+
+
 def get_connection():
     return psycopg2.connect(DATABASE_URL, sslmode='require')
 
-# Load recent articles from PostgreSQL
-def load_recent_articles():
+
+def load_articles():
     conn = get_connection()
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT uri, title, body, url
-                FROM articles
-                WHERE created_at >= %s
-            """, ((datetime.now() - timedelta(days=LOOKBACK_DAYS)).date(),))
-            rows = cur.fetchall()
-            return pd.DataFrame(rows, columns=["uri", "title", "body", "url"])
+                SELECT uri, title, body, url, category, sub_category FROM articles
+                WHERE created_at >= CURRENT_DATE - INTERVAL '%s days'
+            """, (LOOKBACK_DAYS,))
+            return pd.DataFrame(cur.fetchall(), columns=["uri", "title", "body", "url", "article_category", "article_subcategory"])
     finally:
         conn.close()
 
-# Get labeled URIs by user
+
 def get_labeled_uris(user_id):
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT uri FROM labels WHERE user_id = %s", (user_id,))
-            return [row[0] for row in cur.fetchall()]
+            cur.execute("SELECT uri FROM detailed_labels WHERE user_id = %s", (user_id,))
+            return set(row[0] for row in cur.fetchall())
     finally:
         conn.close()
 
-# Save label to PostgreSQL
-def save_label(user_id, uri, label):
+
+def save_detailed_label(user_id, session):
     conn = get_connection()
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO labels (user_id, uri, label)
-                VALUES (%s, %s, %s)
-            """, (user_id, uri, label))
+                INSERT INTO detailed_labels (user_id, uri, useful, category, subcategory, purpose)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (user_id, session['uri'], session['useful'], session['category'], session['subcategory'], session['purpose']))
         conn.commit()
     finally:
         conn.close()
 
-# Bot Handlers
-df = load_recent_articles()
-df = df.reset_index(drop=True)
-user_sent_index = {}  # user_id -> current index
 
 def start(update: Update, context: CallbackContext):
-    update.message.reply_text("Welcome! Use /label to review news or /status to see your progress.")
+    update.message.reply_text("Welcome! Use /label to begin tagging articles.")
 
-def status(update: Update, context: CallbackContext):
-    user_id = update.message.chat_id
-    labeled_count = len(get_labeled_uris(user_id))
-    total = len(df)
-    remaining = total - labeled_count
-    update.message.reply_text(f"🧾 Status:\nTotal Articles: {total}\nYou've Labeled: {labeled_count}\nRemaining: {remaining}")
 
-def send_articles(update: Update, context: CallbackContext):
+def label(update: Update, context: CallbackContext):
     user_id = update.message.chat_id
-    labeled_uris = set(get_labeled_uris(user_id))
+    df = load_articles()
+    labeled_uris = get_labeled_uris(user_id)
     remaining_df = df[~df['uri'].isin(labeled_uris)]
 
     if remaining_df.empty:
         update.message.reply_text("🎉 You've labeled all available articles.")
-        return
+        return ConversationHandler.END
 
-    user_sent_index.setdefault(user_id, 0)
-    remaining_df = remaining_df.reset_index(drop=True)
-    start_idx = user_sent_index[user_id]
-    end_idx = start_idx + BATCH_SIZE
-    batch = remaining_df.iloc[start_idx:end_idx]
+    article = remaining_df.iloc[0]  # One article at a time
+    user_sessions[user_id] = {"uri": article["uri"]}
+    text = (f"*{article['title']}*\n\n"
+            f"{article['body'][:500]}...\n\n"
+            f"[Read more]({article['url']})\n\n"
+            f"📂 *Suggested Category:* {article['article_category']}\n"
+            f"🔖 *Suggested Subcategory:* {article['article_subcategory']}")
 
-    for _, article in batch.iterrows():
-        text = f"*{article['title']}*\n\n{article['body'][:500]}...\n\n[Read more]({article['url']})"
-        buttons = [[
-            InlineKeyboardButton("👍 Good", callback_data=f"{user_id}|{article['uri']}:1"),
-            InlineKeyboardButton("👎 Not useful", callback_data=f"{user_id}|{article['uri']}:0")
-        ]]
-        context.bot.send_message(chat_id=user_id, text=text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
+    buttons = [
+        [InlineKeyboardButton("👍 Useful", callback_data="useful|yes"),
+         InlineKeyboardButton("👎 Not Useful", callback_data="useful|no")]
+    ]
+    update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    return ASK_USEFUL
 
-    user_sent_index[user_id] += BATCH_SIZE
 
-def handle_label(update: Update, context: CallbackContext):
+def ask_category(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
-    data = query.data
-    meta, label = data.split(":")
-    user_id_str, uri = meta.split("|")
-    user_id = int(user_id_str)
-    label = int(label)
+    user_id = query.message.chat_id
+    user_sessions[user_id]['useful'] = query.data.endswith("yes")
 
-    article = df[df['uri'] == uri].iloc[0]
-    save_label(user_id, uri, label)
+    buttons = [[InlineKeyboardButton(cat, callback_data=f"cat|{cat}")] for cat in CATEGORIES.keys()]
+    query.edit_message_text("Which category does this article fall under?", reply_markup=InlineKeyboardMarkup(buttons))
+    return ASK_CATEGORY
 
-    query.edit_message_reply_markup(reply_markup=None)
-    query.edit_message_text(f"Labeled as {'👍 Good' if label == 1 else '👎 Not useful'}.\nUse /label for more.")
+
+def ask_subcategory(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+    user_id = query.message.chat_id
+    category = query.data.split("|")[1]
+    user_sessions[user_id]['category'] = category
+
+    buttons = [[InlineKeyboardButton(sub, callback_data=f"subcat|{sub}")] for sub in CATEGORIES[category]]
+    query.edit_message_text(f"Select a subcategory for *{category}*:", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    return ASK_SUBCATEGORY
+
+
+def ask_purpose(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+    user_id = query.message.chat_id
+    subcategory = query.data.split("|")[1]
+    user_sessions[user_id]['subcategory'] = subcategory
+
+    buttons = [[
+        InlineKeyboardButton("Summary", callback_data="purpose|summary"),
+        InlineKeyboardButton("Insights", callback_data="purpose|insights"),
+        InlineKeyboardButton("Both", callback_data="purpose|both")
+    ]]
+    query.edit_message_text("What is this article best used for?", reply_markup=InlineKeyboardMarkup(buttons))
+    return ASK_PURPOSE
+
+
+def end_label(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+    user_id = query.message.chat_id
+    purpose = query.data.split("|")[1]
+    user_sessions[user_id]['purpose'] = purpose
+
+    save_detailed_label(user_id, user_sessions[user_id])
+
+    # Show status
+    df = load_articles()
+    labeled = len(get_labeled_uris(user_id))
+    total = len(df)
+    remaining = total - labeled
+    query.edit_message_text(f"✅ Label saved.\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}\n\nUse /label to tag another article.")
+    return ConversationHandler.END
+
+
+def cancel(update: Update, context: CallbackContext):
+    update.message.reply_text("Labelling cancelled.")
+    return ConversationHandler.END
+
 
 def main():
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
 
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("label", send_articles))
-    dp.add_handler(CommandHandler("status", status))
-    dp.add_handler(CallbackQueryHandler(handle_label))
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('label', label)],
+        states={
+            ASK_USEFUL: [CallbackQueryHandler(ask_category, pattern="^useful\|")],
+            ASK_CATEGORY: [CallbackQueryHandler(ask_subcategory, pattern="^cat\|")],
+            ASK_SUBCATEGORY: [CallbackQueryHandler(ask_purpose, pattern="^subcat\|")],
+            ASK_PURPOSE: [CallbackQueryHandler(end_label, pattern="^purpose\|")],
+        },
+        fallbacks=[CommandHandler('cancel', cancel)]
+    )
 
-    print("✅ Bot running with PostgreSQL storage...")
+    dp.add_handler(CommandHandler('start', start))
+    dp.add_handler(conv_handler)
+
+    print("✅ Detailed labeling bot running...")
     updater.start_polling()
     updater.idle()
 
