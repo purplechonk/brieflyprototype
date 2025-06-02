@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import psycopg2
 import os
+import time
 
 # Initialize EventRegistry client (replace with your API key)
 API_KEY = "4669b6ea-fa93-40b1-ad2c-1714cc3727b4"
@@ -67,11 +68,11 @@ def fetch_great_power_competition(date_start, date_end):
 
 
 SECURITY_KEYWORDS = [
-    "war", "conflict", "military", "border dispute", "incursion",
-    "airstrike", "missile", "tensions", "sovereignty", "naval patrol",
-    "cyberattack", "espionage", "terrorism", "deterrence", "military drill",
-    "troop movement", "defence cooperation", "security pact", "ceasefire", "sanctions"
+    "war", "conflict", "military", "border dispute", "airstrike",
+    "missile", "tensions", "sovereignty", "cyberattack", "espionage",
+    "terrorism", "deterrence", "military drill", "troop movement", "ceasefire"
 ]
+
 
 def fetch_conflict_and_security(date_start, date_end):
     base_query = {
@@ -104,11 +105,9 @@ def fetch_conflict_and_security(date_start, date_end):
 
 
 TRADE_KEYWORDS = [
-    "trade agreement", "free trade", "tariffs", "trade war",
-    "exports", "imports", "supply chain", "WTO", "World Trade Organization",
-    "FTA", "bilateral trade", "trade pact", "customs union",
-    "export ban", "import restriction", "sanctions", 
-    "port congestion", "trade negotiation", "logistics"
+    "trade agreement", "tariffs", "trade war", "exports", "imports",
+    "supply chain", "WTO", "FTA", "trade pact", "export ban",
+    "import restriction", "sanctions", "trade negotiation", "logistics"
 ]
 
 
@@ -411,6 +410,19 @@ def _fetch_topic(base_query, category, topic_name):
     print(f"Retrieved {len(articles)} articles for category: {category} sub_category: {topic_name}")
     return articles
 
+
+def get_connection(retries=5, delay=5):
+    for attempt in range(1, retries + 1):
+        try:
+            conn = psycopg2.connect(DATABASE_URL)
+            print("✅ Successfully connected to the database.")
+            return conn
+        except psycopg2.OperationalError as e:
+            print(f"⏳ Attempt {attempt}: Could not connect to database. Retrying in {delay}s...\n{e}")
+            time.sleep(delay)
+    raise Exception("❌ Failed to connect to database after multiple attempts.")
+
+
 def save_articles_to_db(df):
     """
     Save articles DataFrame to PostgreSQL 'articles' table.
@@ -420,7 +432,7 @@ def save_articles_to_db(df):
         return
 
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = get_connection()
         cursor = conn.cursor()
 
         for _, row in df.iterrows():
