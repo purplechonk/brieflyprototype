@@ -86,7 +86,9 @@ def start(update: Update, context: CallbackContext):
 def status(update: Update, context: CallbackContext):
     user_id = update.message.chat_id
     df = load_articles()
-    labeled = len(get_labeled_uris(user_id))
+    available_uris = set(df["uri"])
+    labeled_uris = get_labeled_uris(user_id)
+    labeled = len(available_uris & labeled_uris)
     total = len(df)
     remaining = total - labeled
     update.message.reply_text(f"🧾 Status:\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}")
