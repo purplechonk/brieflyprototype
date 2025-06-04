@@ -29,7 +29,6 @@ CATEGORIES = {
 }
 
 user_sessions = {}
-last_labeled_uri = {}  # Tracks last labeled URI per user
 
 def get_connection():
     return psycopg2.connect(DATABASE_URL, sslmode='require')
@@ -102,7 +101,7 @@ def status(update: Update, context: CallbackContext):
     labeled = len(available_uris & labeled_uris)
     total = len(df)
     remaining = total - labeled
-    update.message.reply_text(f"\U0001F9FE Status:\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}")
+    update.message.reply_text(f"📊 Status:\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}")
 
 def redo(update: Update, context: CallbackContext):
     user_id = update.message.chat_id
@@ -121,17 +120,22 @@ def redo(update: Update, context: CallbackContext):
     article = article.iloc[0]
     user_sessions[user_id] = {"uri": uri}
     text = (
+        f"🔄 *Redoing last labeled article:*\n\n"
         f"*{article['title']}*\n\n"
         f"{article['body'][:500]}...\n\n"
         f"[Read more]({article['url']})\n\n"
         f"📂 *Suggested Category:* {article['article_category']}\n"
-        f"🔖 *Suggested Subcategory:* {article['article_subcategory']}"
+        f"🔖 *Suggested Subcategory:* {article['article_subcategory']}\n\n"
+        f"*Previous Labels:*\n"
+        f"Category: {category or 'N/A'}\n"
+        f"Subcategory: {subcategory or 'N/A'}\n"
+        f"Purpose: {purpose or 'N/A'}"
     )
     buttons = [[
         InlineKeyboardButton("👍 Useful", callback_data="useful|yes"),
         InlineKeyboardButton("👎 Not Useful", callback_data="useful|no")
     ]]
-    update.message.reply_text(f"🔄 Redoing last labeled article:{text}", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
     return ASK_USEFUL
 
 def ask_category(update: Update, context: CallbackContext):
@@ -149,7 +153,7 @@ def ask_category(update: Update, context: CallbackContext):
         labeled = len(available_uris & labeled_uris)
         total = len(df)
         remaining = total - labeled
-        query.edit_message_text(f"\u274C Marked as Not Useful.\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}\n\nUse /label to tag another article.")
+        query.edit_message_text(f"❌ Marked as Not Useful.\n\n📊 Status:\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}\n\nUse /label to tag another article.")
         return ConversationHandler.END
 
     buttons = [[InlineKeyboardButton(cat, callback_data=f"cat|{cat}")] for cat in CATEGORIES.keys()]
@@ -230,9 +234,10 @@ def end_label(update: Update, context: CallbackContext):
     total = len(df)
     remaining = total - labeled
     query.edit_message_text(
-        f"✅ Label saved.\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}\n\nUse /label to tag another article."
+        f"✅ Label saved!\n\n📊 Status:\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}\n\nUse /label to tag another article."
     )
     return ConversationHandler.END
+
 
 def cancel(update: Update, context: CallbackContext):
     update.message.reply_text("Labelling cancelled.")
