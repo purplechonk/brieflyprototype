@@ -19,13 +19,47 @@ ASK_USEFUL, ASK_CATEGORY, ASK_SUBCATEGORY, ASK_PURPOSE = range(4)
 
 # Categories and Subcategories
 CATEGORIES = {
-    "Geopolitics": ["Great-Power Competition", "Conflict and Security", "International Trade", "International Institutions"],
-    "Economy": ["Economic Data and Outlook", "Economic Policy", "Financial Markets", "Southeast Asian Economies"],
-    "Technology": ["Artificial Intelligence", "Digital Transformation and Automation", "Cybersecurity and Data Privacy", "Emerging Technologies"],
-    "ESG": ["Climate News and Agreements", "Renewable Energy", "Diversity, Equity and Inclusion", "Governance"],
-    "Businesses": ["Companies", "Mergers and Acquisitions", "Property and Infrastructure", "Startups"],
-    "Government": ["Southeast Asian Politics", "Government Initiatives", "Technology Regulation and Policy", "Climate Regulation and Policy"],
-    "Society": ["Consumer Trends"]
+    "Geopolitics": [
+        "Great-Power Competition", 
+        "Conflict and Security", 
+        "International Trade", 
+        "International Institutions"
+    ],
+    "Economy": [
+        "Economic Data and Outlook", 
+        "Economic Policy", 
+        "Financial Markets", 
+        "Southeast Asian Economies"
+    ],
+    "Technology": [
+        "Artificial Intelligence", 
+        "Digital Transformation and Automation", 
+        "Cybersecurity and Data Privacy", 
+        "Emerging Technologies"
+    ],
+    "Sustainability": [
+        "Climate News and Agreements", 
+        "Renewable Energy", 
+        "Sustainability Solutions", 
+        "Sustainable Finance"
+    ],
+    "Businesses": [
+        "Companies and Startups", 
+        "Mergers and Acquisitions", 
+        "Property and Infrastructure", 
+        "Governance"
+    ],
+    "Government": [
+        "Southeast Asian Politics", 
+        "Government Initiatives", 
+        "Technology Regulation and Policy", 
+        "Climate Regulation and Policy"
+    ],
+    "Society": [
+        "Consumer Trends", 
+        "Social Movements", 
+        "Diversity, Equity and Inclusion"
+    ]
 }
 
 user_sessions = {}
