@@ -106,6 +106,7 @@ def status(update: Update, context: CallbackContext):
     update.message.reply_text(f"🧾 Status:\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}")
     
     
+
 def redo(update: Update, context: CallbackContext):
     user_id = update.message.chat_id
     last = get_last_labeled_article(user_id)
@@ -122,19 +123,20 @@ def redo(update: Update, context: CallbackContext):
 
     article = article.iloc[0]
     user_sessions[user_id] = {"uri": uri}
-    text = (f"*{article['title']}*\n\n"
-            f"{article['body'][:500]}...\n\n"
-            f"[Read more]({article['url']})\n\n"
-            f"\U0001F4C2 *Suggested Category:* {article['article_category']}\n"
-            f"\U0001F516 *Suggested Subcategory:* {article['article_subcategory']}")
+    text = (
+        f"*{article['title']}*"
+        f"{article['body'][:500]}..."
+        f"[Read more]({article['url']})"
+        f"📂 *Suggested Category:* {article['article_category']}"
+        f"🔖 *Suggested Subcategory:* {article['article_subcategory']}"
+    )
 
     buttons = [[
-        InlineKeyboardButton("\U0001F44D Useful", callback_data="useful|yes"),
-        InlineKeyboardButton("\U0001F44E Not Useful", callback_data="useful|no")
+        InlineKeyboardButton("👍 Useful", callback_data="useful|yes"),
+        InlineKeyboardButton("👎 Not Useful", callback_data="useful|no")
     ]]
-    update.message.reply_text(f"\U0001F504 Redoing last labeled article:\n\n{text}", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    update.message.reply_text(f"🔄 Redoing last labeled article:{text}", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
     return ASK_USEFUL
-
 
 def label(update: Update, context: CallbackContext):
     user_id = update.message.chat_id
