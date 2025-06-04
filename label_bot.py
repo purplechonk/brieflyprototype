@@ -104,20 +104,21 @@ def status(update: Update, context: CallbackContext):
     total = len(df)
     remaining = total - labeled
     update.message.reply_text(f"🧾 Status:\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}")
-
+    
+    
 def redo(update: Update, context: CallbackContext):
     user_id = update.message.chat_id
     last = get_last_labeled_article(user_id)
     if not last:
         update.message.reply_text("No recent labeled article found to redo.")
-        return
+        return ConversationHandler.END
 
     uri, category, subcategory, purpose = last
     df = load_articles()
     article = df[df["uri"] == uri]
     if article.empty:
         update.message.reply_text("The last labeled article is no longer available.")
-        return
+        return ConversationHandler.END
 
     article = article.iloc[0]
     user_sessions[user_id] = {"uri": uri}
@@ -132,6 +133,8 @@ def redo(update: Update, context: CallbackContext):
         InlineKeyboardButton("\U0001F44E Not Useful", callback_data="useful|no")
     ]]
     update.message.reply_text(f"\U0001F504 Redoing last labeled article:\n\n{text}", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    return ASK_USEFUL
+
 
 def label(update: Update, context: CallbackContext):
     user_id = update.message.chat_id
