@@ -182,6 +182,34 @@ def ask_purpose(update: Update, context: CallbackContext):
     query.edit_message_text("What is this article best used for?", reply_markup=InlineKeyboardMarkup(buttons))
     return ASK_PURPOSE
 
+def label(update: Update, context: CallbackContext):
+    user_id = update.message.chat_id
+    df = load_articles()
+    labeled_uris = get_labeled_uris(user_id)
+    remaining_df = df[~df['uri'].isin(labeled_uris)]
+
+    if remaining_df.empty:
+        update.message.reply_text("🎉 You've labeled all available articles.")
+        return ConversationHandler.END
+
+    article = remaining_df.iloc[0]
+    user_sessions[user_id] = {"uri": article["uri"]}
+    text = (
+        f"*{article['title']}*\n\n"
+        f"{article['body'][:500]}...\n\n"
+        f"[Read more]({article['url']})\n\n"
+        f"📂 *Suggested Category:* {article['article_category']}\n"
+        f"🔖 *Suggested Subcategory:* {article['article_subcategory']}"
+    )
+
+    buttons = [[
+        InlineKeyboardButton("👍 Useful", callback_data="useful|yes"),
+        InlineKeyboardButton("👎 Not Useful", callback_data="useful|no")
+    ]]
+    update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+    return ASK_USEFUL
+
+
 def end_label(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
