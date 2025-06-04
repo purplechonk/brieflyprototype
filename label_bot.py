@@ -31,56 +31,138 @@ CATEGORIES = {
 user_sessions = {}
 
 def get_connection():
-    return psycopg2.connect(DATABASE_URL, sslmode='require')
+    try:
+        return psycopg2.connect(DATABASE_URL, sslmode='require')
+    except psycopg2.OperationalError as e:
+        print(f"❌ Database connection failed: {e}")
+        print(f"🔍 DATABASE_URL: {DATABASE_URL[:50]}...")  # Show partial URL for debugging
+        raise e
 
 def load_articles():
-    conn = get_connection()
     try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT uri, title, body, url, category, sub_category FROM articles
-                WHERE created_at >= CURRENT_DATE - INTERVAL '%s days'
-            """, (LOOKBACK_DAYS,))
-            return pd.DataFrame(cur.fetchall(), columns=["uri", "title", "body", "url", "article_category", "article_subcategory"])
-    finally:
-        conn.close()
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT uri, title, body, url, category, sub_category FROM articles
+                    WHERE created_at >= CURRENT_DATE - INTERVAL '%s days'
+                """, (LOOKBACK_DAYS,))
+                return pd.DataFrame(cur.fetchall(), columns=["uri", "title", "body", "url", "article_category", "article_subcategory"])
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f"❌ Error loading articles: {e}")
+        return pd.DataFrame()  # Return empty DataFrame on error
 
 def get_labeled_uris(user_id):
+    print(f"🔍 DEBUG: Getting labeled URIs for user {user_id}")
     conn = get_connection()
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT uri FROM detailed_labels WHERE user_id = %s", (user_id,))
-            return set(row[0] for row in cur.fetchall())
+            uris = set(row[0] for row in cur.fetchall())
+            print(f"🔍 DEBUG: Found {len(uris)} labeled URIs for user {user_id}")
+            return uris
+    except Exception as e:
+        print(f"❌ ERROR: Failed to get labeled URIs: {e}")
+        return set()
     finally:
         conn.close()
 
 def save_detailed_label(user_id, session):
-    conn = get_connection()
+    print(f"🔍 DEBUG: Attempting to save label for user {user_id}")
+    print(f"🔍 DEBUG: Session data: {session}")
+    
     try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO detailed_labels (user_id, uri, useful, category, subcategory, purpose)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (user_id, uri) DO UPDATE SET
-                    useful = EXCLUDED.useful,
-                    category = EXCLUDED.category,
-                    subcategory = EXCLUDED.subcategory,
-                    purpose = EXCLUDED.purpose
-            """, (user_id, session['uri'], session['useful'], session.get('category'), session.get('subcategory'), session.get('purpose')))
-        conn.commit()
-    finally:
-        conn.close()
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                print(f"🔍 DEBUG: Executing UPDATE/INSERT query...")
+                
+                # Check if purpose column exists
+                cur.execute("""
+                    SELECT column_name FROM information_schema.columns 
+                    WHERE table_name = 'detailed_labels' AND column_name = 'purpose'
+                """)
+                has_purpose_column = cur.fetchone() is not None
+                print(f"🔍 DEBUG: Purpose column exists: {has_purpose_column}")
+                
+                if has_purpose_column:
+                    # Update with purpose column
+                    cur.execute("""
+                        UPDATE detailed_labels 
+                        SET useful = %s, category = %s, subcategory = %s, purpose = %s
+                        WHERE user_id = %s AND uri = %s
+                    """, (session['useful'], session.get('category'), session.get('subcategory'), 
+                         session.get('purpose'), user_id, session['uri']))
+                    
+                    if cur.rowcount == 0:
+                        cur.execute("""
+                            INSERT INTO detailed_labels (user_id, uri, useful, category, subcategory, purpose)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                        """, (user_id, session['uri'], session['useful'], session.get('category'), 
+                             session.get('subcategory'), session.get('purpose')))
+                else:
+                    # Update without purpose column
+                    cur.execute("""
+                        UPDATE detailed_labels 
+                        SET useful = %s, category = %s, subcategory = %s
+                        WHERE user_id = %s AND uri = %s
+                    """, (session['useful'], session.get('category'), session.get('subcategory'), 
+                         user_id, session['uri']))
+                    
+                    if cur.rowcount == 0:
+                        cur.execute("""
+                            INSERT INTO detailed_labels (user_id, uri, useful, category, subcategory)
+                            VALUES (%s, %s, %s, %s, %s)
+                        """, (user_id, session['uri'], session['useful'], session.get('category'), 
+                             session.get('subcategory')))
+                
+                print(f"🔍 DEBUG: UPDATE affected {cur.rowcount} rows")
+                print(f"🔍 DEBUG: Query executed, committing transaction...")
+            conn.commit()
+            print(f"✅ DEBUG: Label saved successfully for user {user_id}, URI: {session['uri']}")
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f"❌ ERROR: Failed to save label: {e}")
+        print(f"❌ ERROR: Exception type: {type(e).__name__}")
+        if 'conn' in locals():
+            try:
+                conn.rollback()
+                conn.close()
+            except:
+                pass
+        raise e
 
 def get_last_labeled_article(user_id):
     conn = get_connection()
     try:
         with conn.cursor() as cur:
+            # Check if purpose column exists
             cur.execute("""
-                SELECT uri, category, subcategory, purpose FROM detailed_labels
-                WHERE user_id = %s ORDER BY id DESC LIMIT 1
-            """, (user_id,))
-            row = cur.fetchone()
-            return row if row else None
+                SELECT column_name FROM information_schema.columns 
+                WHERE table_name = 'detailed_labels' AND column_name = 'purpose'
+            """)
+            has_purpose_column = cur.fetchone() is not None
+            
+            if has_purpose_column:
+                cur.execute("""
+                    SELECT uri, category, subcategory, purpose FROM detailed_labels
+                    WHERE user_id = %s ORDER BY id DESC LIMIT 1
+                """, (user_id,))
+                row = cur.fetchone()
+                return row if row else None
+            else:
+                cur.execute("""
+                    SELECT uri, category, subcategory FROM detailed_labels
+                    WHERE user_id = %s ORDER BY id DESC LIMIT 1
+                """, (user_id,))
+                row = cur.fetchone()
+                if row:
+                    # Add None for purpose to maintain compatibility
+                    return row + (None,)
+                return None
     finally:
         conn.close()
 
@@ -95,13 +177,21 @@ def start(update: Update, context: CallbackContext):
 
 def status(update: Update, context: CallbackContext):
     user_id = update.message.chat_id
-    df = load_articles()
-    available_uris = set(df["uri"])
-    labeled_uris = get_labeled_uris(user_id)
-    labeled = len(available_uris & labeled_uris)
-    total = len(df)
-    remaining = total - labeled
-    update.message.reply_text(f"📊 Status:\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}")
+    try:
+        df = load_articles()
+        if df.empty:
+            update.message.reply_text("⚠️ No articles available or database connection issue.")
+            return
+            
+        available_uris = set(df["uri"])
+        labeled_uris = get_labeled_uris(user_id)
+        labeled = len(available_uris & labeled_uris)
+        total = len(df)
+        remaining = total - labeled
+        update.message.reply_text(f"📊 Status:\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}")
+    except Exception as e:
+        print(f"❌ Error in status command: {e}")
+        update.message.reply_text("❌ Database connection error. Please try again later.")
 
 def redo(update: Update, context: CallbackContext):
     user_id = update.message.chat_id
@@ -145,15 +235,36 @@ def ask_category(update: Update, context: CallbackContext):
     is_useful = query.data.endswith("yes")
     user_sessions[user_id]['useful'] = is_useful
 
+    print(f"🔍 DEBUG: ask_category called for user {user_id}, useful: {is_useful}")
+
     if not is_useful:
-        save_detailed_label(user_id, user_sessions[user_id])
-        df = load_articles()
-        available_uris = set(df["uri"])
-        labeled_uris = get_labeled_uris(user_id)
-        labeled = len(available_uris & labeled_uris)
-        total = len(df)
-        remaining = total - labeled
-        query.edit_message_text(f"❌ Marked as Not Useful.\n\n📊 Status:\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}\n\nUse /label to tag another article.")
+        print(f"🔍 DEBUG: Article marked as not useful, saving label...")
+        print(f"🔍 DEBUG: Session data before save: {user_sessions[user_id]}")
+        
+        try:
+            save_detailed_label(user_id, user_sessions[user_id])
+            print(f"✅ DEBUG: Not useful label saved successfully")
+            
+            df = load_articles()
+            available_uris = set(df["uri"])
+            labeled_uris = get_labeled_uris(user_id)
+            labeled = len(available_uris & labeled_uris)
+            total = len(df)
+            remaining = total - labeled
+            
+            success_message = f"❌ Marked as Not Useful.\n\n📊 Status:\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}\n\nUse /label to tag another article."
+            print(f"🔍 DEBUG: Sending not useful message: {success_message}")
+            
+            query.edit_message_text(success_message)
+            
+            # Clean up session
+            if user_id in user_sessions:
+                del user_sessions[user_id]
+                
+        except Exception as e:
+            print(f"❌ ERROR: Exception saving not useful label: {e}")
+            query.edit_message_text(f"❌ Error saving label: {str(e)}\n\nPlease try again with /label")
+            
         return ConversationHandler.END
 
     buttons = [[InlineKeyboardButton(cat, callback_data=f"cat|{cat}")] for cat in CATEGORIES.keys()]
@@ -188,30 +299,39 @@ def ask_purpose(update: Update, context: CallbackContext):
 
 def label(update: Update, context: CallbackContext):
     user_id = update.message.chat_id
-    df = load_articles()
-    labeled_uris = get_labeled_uris(user_id)
-    remaining_df = df[~df['uri'].isin(labeled_uris)]
+    try:
+        df = load_articles()
+        if df.empty:
+            update.message.reply_text("⚠️ No articles available or database connection issue.")
+            return ConversationHandler.END
+            
+        labeled_uris = get_labeled_uris(user_id)
+        remaining_df = df[~df['uri'].isin(labeled_uris)]
 
-    if remaining_df.empty:
-        update.message.reply_text("🎉 You've labeled all available articles.")
+        if remaining_df.empty:
+            update.message.reply_text("🎉 You've labeled all available articles.")
+            return ConversationHandler.END
+
+        article = remaining_df.iloc[0]
+        user_sessions[user_id] = {"uri": article["uri"]}
+        text = (
+            f"*{article['title']}*\n\n"
+            f"{article['body'][:500]}...\n\n"
+            f"[Read more]({article['url']})\n\n"
+            f"📂 *Suggested Category:* {article['article_category']}\n"
+            f"🔖 *Suggested Subcategory:* {article['article_subcategory']}"
+        )
+
+        buttons = [[
+            InlineKeyboardButton("👍 Useful", callback_data="useful|yes"),
+            InlineKeyboardButton("👎 Not Useful", callback_data="useful|no")
+        ]]
+        update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
+        return ASK_USEFUL
+    except Exception as e:
+        print(f"❌ Error in label command: {e}")
+        update.message.reply_text("❌ Database connection error. Please try again later.")
         return ConversationHandler.END
-
-    article = remaining_df.iloc[0]
-    user_sessions[user_id] = {"uri": article["uri"]}
-    text = (
-        f"*{article['title']}*\n\n"
-        f"{article['body'][:500]}...\n\n"
-        f"[Read more]({article['url']})\n\n"
-        f"📂 *Suggested Category:* {article['article_category']}\n"
-        f"🔖 *Suggested Subcategory:* {article['article_subcategory']}"
-    )
-
-    buttons = [[
-        InlineKeyboardButton("👍 Useful", callback_data="useful|yes"),
-        InlineKeyboardButton("👎 Not Useful", callback_data="useful|no")
-    ]]
-    update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
-    return ASK_USEFUL
 
 
 def end_label(update: Update, context: CallbackContext):
@@ -220,28 +340,100 @@ def end_label(update: Update, context: CallbackContext):
     user_id = query.message.chat_id
     purpose = query.data.split("|")[1]
 
+    print(f"🔍 DEBUG: end_label called for user {user_id}, purpose: {purpose}")
+    
     if user_id not in user_sessions:
+        print(f"❌ DEBUG: No session found for user {user_id}")
         query.edit_message_text("⚠️ Session expired or not found. Please use /label to restart.")
         return ConversationHandler.END
 
     user_sessions[user_id]['purpose'] = purpose
-    save_detailed_label(user_id, user_sessions[user_id])
-
-    df = load_articles()
-    available_uris = set(df["uri"])
-    labeled_uris = get_labeled_uris(user_id)
-    labeled = len(available_uris & labeled_uris)
-    total = len(df)
-    remaining = total - labeled
-    query.edit_message_text(
-        f"✅ Label saved!\n\n📊 Status:\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}\n\nUse /label to tag another article."
-    )
+    print(f"🔍 DEBUG: Final session data: {user_sessions[user_id]}")
+    
+    try:
+        save_detailed_label(user_id, user_sessions[user_id])
+        print(f"✅ DEBUG: Label saved successfully, updating UI...")
+        
+        df = load_articles()
+        available_uris = set(df["uri"])
+        labeled_uris = get_labeled_uris(user_id)
+        labeled = len(available_uris & labeled_uris)
+        total = len(df)
+        remaining = total - labeled
+        
+        success_message = f"✅ Label saved!\n\n📊 Status:\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}\n\nUse /label to tag another article."
+        print(f"🔍 DEBUG: Sending success message: {success_message}")
+        
+        query.edit_message_text(success_message)
+        
+        # Clean up session
+        if user_id in user_sessions:
+            del user_sessions[user_id]
+            
+    except Exception as e:
+        print(f"❌ ERROR: Exception in end_label: {e}")
+        query.edit_message_text(f"❌ Error saving label: {str(e)}\n\nPlease try again with /label")
+    
     return ConversationHandler.END
 
 
 def cancel(update: Update, context: CallbackContext):
     update.message.reply_text("Labelling cancelled.")
     return ConversationHandler.END
+
+def test_database(update: Update, context: CallbackContext):
+    """Test database connection and table structure"""
+    user_id = update.message.chat_id
+    
+    try:
+        conn = get_connection()
+        with conn.cursor() as cur:
+            # Test connection
+            cur.execute("SELECT version();")
+            version = cur.fetchone()[0]
+            update.message.reply_text(f"✅ Database connected!\nPostgreSQL version: {version}")
+            
+            # Check if detailed_labels table exists
+            cur.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = 'detailed_labels'
+                );
+            """)
+            table_exists = cur.fetchone()[0]
+            
+            if table_exists:
+                # Get table structure
+                cur.execute("""
+                    SELECT column_name, data_type, is_nullable
+                    FROM information_schema.columns
+                    WHERE table_name = 'detailed_labels'
+                    ORDER BY ordinal_position;
+                """)
+                columns = cur.fetchall()
+                
+                structure = "📋 detailed_labels table structure:\n"
+                for col_name, data_type, nullable in columns:
+                    structure += f"• {col_name}: {data_type} ({'NULL' if nullable == 'YES' else 'NOT NULL'})\n"
+                
+                # Check existing data
+                cur.execute("SELECT COUNT(*) FROM detailed_labels;")
+                count = cur.fetchone()[0]
+                structure += f"\n📊 Total records: {count}"
+                
+                # Check user's data
+                cur.execute("SELECT COUNT(*) FROM detailed_labels WHERE user_id = %s;", (user_id,))
+                user_count = cur.fetchone()[0]
+                structure += f"\n👤 Your records: {user_count}"
+                
+                update.message.reply_text(structure)
+            else:
+                update.message.reply_text("❌ detailed_labels table does not exist!")
+                
+        conn.close()
+        
+    except Exception as e:
+        update.message.reply_text(f"❌ Database error: {str(e)}")
 
 def main():
     # Updated conv_handler to include /redo as an entry point
@@ -262,6 +454,7 @@ def main():
 
     dp.add_handler(CommandHandler('start', start))
     dp.add_handler(CommandHandler('status', status))
+    dp.add_handler(CommandHandler('test', test_database))  # Add test command
     # Removed standalone redo handler to avoid conflicts
     # dp.add_handler(CommandHandler('redo', redo))
     dp.add_handler(conv_handler)
