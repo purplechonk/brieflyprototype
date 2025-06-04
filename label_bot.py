@@ -222,7 +222,7 @@ def end_label(update: Update, context: CallbackContext):
     labeled = len(get_labeled_uris(user_id))
     total = len(df)
     remaining = total - labeled
-    query.edit_message_text(f"✅ Label saved.\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}\n\nUse /label to tag another article.")
+    query.edit_message_text(f"✅ Label saved.\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}\n\nUse /label to tag another article. \n Use /redo to re-label the previous article")
     return ConversationHandler.END
 
 
