@@ -120,44 +120,19 @@ def redo(update: Update, context: CallbackContext):
 
     article = article.iloc[0]
     user_sessions[user_id] = {"uri": uri}
-    text = (
-        f"*{article['title']}*"
-        f"{article['body'][:500]}..."
-        f"[Read more]({article['url']})"
-        f"📂 *Suggested Category:* {article['article_category']}"
-        f"🔖 *Suggested Subcategory:* {article['article_subcategory']}"
-    )
+    text = (f"*{article['title']}*"
+            f"{article['body'][:500]}..."
+            f"[Read more]({article['url']})"
+            f"📂 *Suggested Category:* {article['article_category']}"
+            f"🔖 *Suggested Subcategory:* {article['article_subcategory']})"
+            f"📂 *Suggested Category:* {article['article_category']}"
+            f"🔖 *Suggested Subcategory:* {article['article_subcategory']}")
 
     buttons = [[
         InlineKeyboardButton("👍 Useful", callback_data="useful|yes"),
         InlineKeyboardButton("👎 Not Useful", callback_data="useful|no")
     ]]
     update.message.reply_text(f"🔄 Redoing last labeled article:{text}", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
-    return ASK_USEFUL
-
-def label(update: Update, context: CallbackContext):
-    user_id = update.message.chat_id
-    df = load_articles()
-    labeled_uris = get_labeled_uris(user_id)
-    remaining_df = df[~df['uri'].isin(labeled_uris)]
-
-    if remaining_df.empty:
-        update.message.reply_text("\U0001F389 You've labeled all available articles.")
-        return ConversationHandler.END
-
-    article = remaining_df.iloc[0]
-    user_sessions[user_id] = {"uri": article["uri"]}
-    text = (f"*{article['title']}*\n\n"
-            f"{article['body'][:500]}...\n\n"
-            f"[Read more]({article['url']})\n\n"
-            f"\U0001F4C2 *Suggested Category:* {article['article_category']}\n"
-            f"\U0001F516 *Suggested Subcategory:* {article['article_subcategory']}")
-
-    buttons = [[
-        InlineKeyboardButton("\U0001F44D Useful", callback_data="useful|yes"),
-        InlineKeyboardButton("\U0001F44E Not Useful", callback_data="useful|no")
-    ]]
-    update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
     return ASK_USEFUL
 
 def ask_category(update: Update, context: CallbackContext):
@@ -213,8 +188,12 @@ def end_label(update: Update, context: CallbackContext):
     query.answer()
     user_id = query.message.chat_id
     purpose = query.data.split("|")[1]
-    user_sessions[user_id]['purpose'] = purpose
 
+    if user_id not in user_sessions:
+        query.edit_message_text("⚠️ Session expired or not found. Please use /label to restart.")
+        return ConversationHandler.END
+
+    user_sessions[user_id]['purpose'] = purpose
     save_detailed_label(user_id, user_sessions[user_id])
 
     df = load_articles()
@@ -223,7 +202,7 @@ def end_label(update: Update, context: CallbackContext):
     labeled = len(available_uris & labeled_uris)
     total = len(df)
     remaining = total - labeled
-    query.edit_message_text(f"\u2705 Label saved.\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}\n\nUse /label to tag another article.")
+    query.edit_message_text(f"✅ Label saved. Total Articles: {total} You've Labeled: {labeled} Remaining: {remaining} Use /label to tag another article.")
     return ConversationHandler.END
 
 def cancel(update: Update, context: CallbackContext):
