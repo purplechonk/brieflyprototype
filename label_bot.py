@@ -31,7 +31,7 @@ CATEGORIES = {
 }
 
 user_sessions = {}  # Tracks session info by user_id
-
+last_labeled_uri = {}  # Tracks last labeled URI per user
 
 def get_connection():
     return psycopg2.connect(DATABASE_URL, sslmode='require')
@@ -72,6 +72,18 @@ def save_detailed_label(user_id, session):
     finally:
         conn.close()
 
+def get_last_labeled_article(user_id):
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT uri, category, subcategory, purpose FROM detailed_labels
+                WHERE user_id = %s ORDER BY id DESC LIMIT 1
+            """, (user_id,))
+            row = cur.fetchone()
+            return row if row else None
+    finally:
+        conn.close()
 
 def start(update: Update, context: CallbackContext):
     user = update.effective_user
@@ -93,6 +105,33 @@ def status(update: Update, context: CallbackContext):
     remaining = total - labeled
     update.message.reply_text(f"🧾 Status:\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}")
 
+def redo(update: Update, context: CallbackContext):
+    user_id = update.message.chat_id
+    last = get_last_labeled_article(user_id)
+    if not last:
+        update.message.reply_text("No recent labeled article found to redo.")
+        return
+
+    uri, category, subcategory, purpose = last
+    df = load_articles()
+    article = df[df["uri"] == uri]
+    if article.empty:
+        update.message.reply_text("The last labeled article is no longer available.")
+        return
+
+    article = article.iloc[0]
+    user_sessions[user_id] = {"uri": uri}
+    text = (f"*{article['title']}*\n\n"
+            f"{article['body'][:500]}...\n\n"
+            f"[Read more]({article['url']})\n\n"
+            f"\U0001F4C2 *Suggested Category:* {article['article_category']}\n"
+            f"\U0001F516 *Suggested Subcategory:* {article['article_subcategory']}")
+
+    buttons = [[
+        InlineKeyboardButton("\U0001F44D Useful", callback_data="useful|yes"),
+        InlineKeyboardButton("\U0001F44E Not Useful", callback_data="useful|no")
+    ]]
+    update.message.reply_text(f"\U0001F504 Redoing last labeled article:\n\n{text}", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(buttons))
 
 def label(update: Update, context: CallbackContext):
     user_id = update.message.chat_id
@@ -209,6 +248,7 @@ def main():
 
     dp.add_handler(CommandHandler('start', start))
     dp.add_handler(CommandHandler('status', status))
+    dp.add_handler(CommandHandler('redo', redo))
     dp.add_handler(conv_handler)
 
     print("✅ Detailed labeling bot running...")
