@@ -120,14 +120,13 @@ def redo(update: Update, context: CallbackContext):
 
     article = article.iloc[0]
     user_sessions[user_id] = {"uri": uri}
-    text = (f"*{article['title']}*"
-            f"{article['body'][:500]}..."
-            f"[Read more]({article['url']})"
-            f"📂 *Suggested Category:* {article['article_category']}"
-            f"🔖 *Suggested Subcategory:* {article['article_subcategory']})"
-            f"📂 *Suggested Category:* {article['article_category']}"
-            f"🔖 *Suggested Subcategory:* {article['article_subcategory']}")
-
+    text = (
+        f"*{article['title']}*\n\n"
+        f"{article['body'][:500]}...\n\n"
+        f"[Read more]({article['url']})\n\n"
+        f"📂 *Suggested Category:* {article['article_category']}\n"
+        f"🔖 *Suggested Subcategory:* {article['article_subcategory']}"
+    )
     buttons = [[
         InlineKeyboardButton("👍 Useful", callback_data="useful|yes"),
         InlineKeyboardButton("👎 Not Useful", callback_data="useful|no")
@@ -202,7 +201,9 @@ def end_label(update: Update, context: CallbackContext):
     labeled = len(available_uris & labeled_uris)
     total = len(df)
     remaining = total - labeled
-    query.edit_message_text(f"✅ Label saved. Total Articles: {total} You've Labeled: {labeled} Remaining: {remaining} Use /label to tag another article.")
+    query.edit_message_text(
+        f"✅ Label saved.\nTotal Articles: {total}\nYou've Labeled: {labeled}\nRemaining: {remaining}\n\nUse /label to tag another article."
+    )
     return ConversationHandler.END
 
 def cancel(update: Update, context: CallbackContext):
