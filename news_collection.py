@@ -10,13 +10,16 @@ import psycopg2
 import os
 import time
 from flask import Flask
+import sys
 
 # Initialize EventRegistry client
 API_KEY = os.getenv("EVENT_REGISTRY_API_KEY", "4669b6ea-fa93-40b1-ad2c-1714cc3727b4")
+print(f"Using API key: {API_KEY[:8]}...")  # Only show first 8 chars for security
 er = EventRegistry(apiKey=API_KEY)
 
 load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
+print(f"Database URL format: {DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else 'No @ in URL'}")  # Only show host part
 
 app = Flask(__name__)
 
@@ -27,9 +30,13 @@ def health_check():
 @app.route('/', methods=['POST'])
 def collect_news():
     try:
+        print("Starting news collection via HTTP trigger")
+        sys.stdout.flush()  # Force flush print statements
         main()
         return 'News collection completed successfully', 200
     except Exception as e:
+        print(f"Error in collect_news endpoint: {str(e)}")
+        sys.stdout.flush()  # Force flush print statements
         return f'Error collecting news: {str(e)}', 500
 
 def _build_query(base_query):
@@ -397,6 +404,7 @@ def get_connection(retries=5, delay=5):
 def save_article_to_db(article, category, subcategory):
     """Save a single article and initialize its metrics"""
     try:
+        print(f"Attempting to save article: {article.get('uri')[:30]}...")
         conn = get_connection()
         with conn.cursor() as cur:
             # Insert article
@@ -419,12 +427,13 @@ def save_article_to_db(article, category, subcategory):
                 article.get("title"),
                 article.get("body"),
                 article.get("url"),
-                article.get("image", {}).get("url"),  # Extract image URL from EventRegistry response
+                article.get("image", {}).get("url"),
                 f"{category}/{subcategory}" if subcategory else category,
                 article.get("dateTime")
             ))
             
             uri = cur.fetchone()[0]
+            print(f"Successfully inserted/updated article: {uri[:30]}...")
             
             # Initialize metrics if they don't exist
             cur.execute("""
@@ -447,6 +456,9 @@ def save_article_to_db(article, category, subcategory):
 def _fetch_topic(base_query, category, topic_name):
     """Fetch articles for a topic and save them to the database"""
     try:
+        print(f"\nFetching {category}/{topic_name}")
+        sys.stdout.flush()  # Force flush print statements
+        
         # Build and execute query
         q = QueryArticles(
             _build_query(base_query)
@@ -458,21 +470,41 @@ def _fetch_topic(base_query, category, topic_name):
             sortByAsc=False
         )
         
-        if not articles or "articles" not in articles:
-            print(f"No articles found for {category}/{topic_name}")
+        print(f"Query executed for {category}/{topic_name}")
+        sys.stdout.flush()  # Force flush print statements
+        
+        if not articles:
+            print(f"No articles object returned for {category}/{topic_name}")
             return []
             
+        if "articles" not in articles:
+            print(f"No 'articles' key in response for {category}/{topic_name}")
+            return []
+            
+        if "results" not in articles["articles"]:
+            print(f"No 'results' key in articles for {category}/{topic_name}")
+            return []
+            
+        results = articles["articles"]["results"]
+        print(f"Found {len(results)} articles for {category}/{topic_name}")
+        
         # Process and save articles
         saved_count = 0
-        for article in articles["articles"]["results"]:
-            if save_article_to_db(article, category, topic_name):
-                saved_count += 1
+        for article in results:
+            try:
+                if save_article_to_db(article, category, topic_name):
+                    saved_count += 1
+            except Exception as e:
+                print(f"Error saving individual article: {str(e)}")
+                continue
         
-        print(f"Saved {saved_count} articles for {category}/{topic_name}")
-        return articles["articles"]["results"]
+        print(f"Saved {saved_count}/{len(results)} articles for {category}/{topic_name}")
+        sys.stdout.flush()  # Force flush print statements
+        return results
         
     except Exception as e:
         print(f"Error fetching {category}/{topic_name}: {str(e)}")
+        sys.stdout.flush()  # Force flush print statements
         return []
 
 def main():
