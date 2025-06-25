@@ -1,3 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+
+# Environment variables
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Project specific
+output/
+*.csv
+!requirements.txt
+
+# Logs
+*.log
+
 # Ignore secrets and temporary files
 .env
 __pycache__/
