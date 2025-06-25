@@ -47,13 +47,6 @@ def _build_query(base_query):
     """
     Wraps a base EventRegistry query with filters.
     """
-    # Convert keyword queries to QueryItems format if present
-    if "keyword" in base_query:
-        if isinstance(base_query["keyword"], dict) and "$or" in base_query["keyword"]:
-            keywords = base_query["keyword"]["$or"]
-            base_query["keyword"] = QueryItems.OR([QueryItems(x) for x in keywords])
-        elif isinstance(base_query["keyword"], str):
-            base_query["keyword"] = QueryItems(base_query["keyword"])
 
     return {
         "$query": base_query,
