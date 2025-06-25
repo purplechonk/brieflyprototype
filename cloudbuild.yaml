@@ -26,6 +26,8 @@ steps:
       - '--allow-unauthenticated'
       - '--set-env-vars'
       - 'EVENT_REGISTRY_API_KEY=${_EVENT_REGISTRY_API_KEY},DATABASE_URL=${_DATABASE_URL}'
+      - '--revision-suffix'
+      - 'v${BUILD_ID}'
 
   # Build the Telegram bot image
   - name: 'gcr.io/cloud-builders/docker'
@@ -51,7 +53,8 @@ steps:
       - '--allow-unauthenticated'
       - '--set-env-vars'
       - 'TELEGRAM_BOT_TOKEN=${_TELEGRAM_BOT_TOKEN},DATABASE_URL=${_DATABASE_URL}'
-      - '--force'
+      - '--revision-suffix'
+      - 'v${BUILD_ID}'
 
 images:
   - 'gcr.io/$PROJECT_ID/news-collector'
