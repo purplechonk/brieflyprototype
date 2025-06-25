@@ -1,1 +1,0 @@
-worker: python label_bot.py

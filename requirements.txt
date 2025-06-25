@@ -1,8 +1,0 @@
-python-telegram-bot==13.15
-pandas
-python-dotenv
-requests
-urllib3
-eventregistry @ git+https://github.com/EventRegistry/event-registry-python.git
-psycopg2-binary
-flask
