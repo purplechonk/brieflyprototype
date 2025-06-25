@@ -510,6 +510,7 @@ def _fetch_topic(base_query, category, topic_name):
 def main():
     """Main function to fetch all news categories"""
     print(f"Starting news collection at {datetime.now()}")
+    sys.stdout.flush()
     
     # Calculate exact 24 hour window
     end_date = datetime.now()
@@ -520,6 +521,7 @@ def main():
     date_start = start_date.strftime("%Y-%m-%d %H:%M:%S")
     
     print(f"Fetching articles from {date_start} to {date_end}")
+    sys.stdout.flush()
     
     try:
         # Fetch all categories
@@ -545,8 +547,10 @@ def main():
         fetch_consumer_trends(date_start, date_end)
         
         print(f"Completed news collection at {datetime.now()}")
+        sys.stdout.flush()
     except Exception as e:
         print(f"Error in main collection process: {str(e)}")
+        sys.stdout.flush()
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 8080))

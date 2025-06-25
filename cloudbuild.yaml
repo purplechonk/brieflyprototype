@@ -1,23 +1,48 @@
 steps:
-  # Build the container image
+  # Build the news collector image
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/news-bot', '.']
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/news-collector', '-f', 'news-collector/Dockerfile', './news-collector']
   
-  # Push the container image to Container Registry
+  # Push the news collector image
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/news-bot']
+    args: ['push', 'gcr.io/$PROJECT_ID/news-collector']
   
-  # Deploy container image to Cloud Run
+  # Deploy news collector to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
       - 'run'
       - 'deploy'
-      - 'news-bot'
+      - 'news-collector'
       - '--image'
-      - 'gcr.io/$PROJECT_ID/news-bot'
+      - 'gcr.io/$PROJECT_ID/news-collector'
       - '--region'
-      - 'asia-southeast1'
+      - 'europe-west1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--set-env-vars'
+      - 'EVENT_REGISTRY_API_KEY=${_EVENT_REGISTRY_API_KEY},DATABASE_URL=${_DATABASE_URL}'
+
+  # Build the Telegram bot image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/brieflyprototype', '-f', 'telegram-bot/Dockerfile', './telegram-bot']
+  
+  # Push the Telegram bot image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/brieflyprototype']
+  
+  # Deploy Telegram bot to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'brieflyprototype'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/brieflyprototype'
+      - '--region'
+      - 'europe-west1'
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
@@ -25,4 +50,5 @@ steps:
       - 'TELEGRAM_BOT_TOKEN=${_TELEGRAM_BOT_TOKEN},DATABASE_URL=${_DATABASE_URL}'
 
 images:
-  - 'gcr.io/$PROJECT_ID/news-bot' 
+  - 'gcr.io/$PROJECT_ID/news-collector'
+  - 'gcr.io/$PROJECT_ID/brieflyprototype' 

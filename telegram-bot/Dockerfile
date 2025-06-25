@@ -12,8 +12,9 @@ COPY requirements.txt .
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy project files
-COPY . .
+# Copy service files
+COPY label_bot.py .
+COPY .env .
 
-# Run the bot
+# Run the Telegram bot
 CMD ["python", "label_bot.py"] 
