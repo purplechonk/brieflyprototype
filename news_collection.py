@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 import psycopg2
 import os
 import time
+from flask import Flask
 
 # Initialize EventRegistry client
 API_KEY = os.getenv("EVENT_REGISTRY_API_KEY", "4669b6ea-fa93-40b1-ad2c-1714cc3727b4")
@@ -16,6 +17,20 @@ er = EventRegistry(apiKey=API_KEY)
 
 load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+app = Flask(__name__)
+
+@app.route('/', methods=['GET'])
+def health_check():
+    return 'News collector service is running'
+
+@app.route('/', methods=['POST'])
+def collect_news():
+    try:
+        main()
+        return 'News collection completed successfully', 200
+    except Exception as e:
+        return f'Error collecting news: {str(e)}', 500
 
 def _build_query(base_query):
     """
@@ -502,4 +517,5 @@ def main():
         print(f"Error in main collection process: {str(e)}")
 
 if __name__ == "__main__":
-    main()
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
