@@ -12,10 +12,14 @@ import time
 from flask import Flask
 import sys
 
-# Initialize EventRegistry client
-API_KEY = os.getenv("EVENT_REGISTRY_API_KEY", "4669b6ea-fa93-40b1-ad2c-1714cc3727b4")
-print(f"Using API key: {API_KEY[:8]}...")  # Only show first 8 chars for security
-er = EventRegistry(apiKey=API_KEY)
+
+load_dotenv()
+
+api_key = os.getenv('EVENT_REGISTRY_API_KEY')
+database_url = os.getenv('DATABASE_URL')
+
+print(f"Using API key: {api_key[:8]}...")  # Only show first 8 chars for security
+er = EventRegistry(apiKey=api_key)
 
 load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")

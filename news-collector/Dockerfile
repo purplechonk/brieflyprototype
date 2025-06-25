@@ -14,7 +14,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy service files
 COPY news_collection.py .
-COPY .env .
 
 # Run the news collection script
 CMD ["python", "news_collection.py"] 

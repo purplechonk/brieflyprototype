@@ -14,7 +14,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy service files
 COPY label_bot.py .
-COPY .env .
 
 # Run the Telegram bot
 CMD ["python", "label_bot.py"] 
