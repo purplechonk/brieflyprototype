@@ -87,6 +87,7 @@ def fetch_geopolitics(date_start, date_end):
         "sourceUri": {"$or": ["channelnewsasia.com", "straitstimes.com"]},
         "dateStart": date_start,
         "dateEnd": date_end,
+        "keyword": None  # Explicitly set keyword to None
     }
     return _fetch_topic(base_query, "Geopolitics", "International")
 
@@ -94,8 +95,13 @@ def fetch_singapore_news(date_start, date_end):
     """Fetch Singapore-related news."""
     base_query = {
         "categoryUri": {"$or": [
-            "dmoz/Regional/Asia/Singapore"
+            "dmoz/Regional/Asia/Singapore",
+            "dmoz/Society/Government",
+            "dmoz/Society/Politics",
+            "dmoz/Business",
+            "dmoz/Society"
         ]},
+        "keyword": None,  # Explicitly set keyword to None
         "lang": "eng",
         "sourceUri": {"$or": ["channelnewsasia.com", "straitstimes.com"]},
         "dateStart": date_start,
