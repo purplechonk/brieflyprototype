@@ -6,11 +6,20 @@ from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (Updater, CallbackContext, CommandHandler, CallbackQueryHandler,
                           ConversationHandler, MessageHandler, Filters)
+from flask import Flask
+import threading
 
 # Load environment variables
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+# Create Flask app
+app = Flask(__name__)
+
+@app.route('/', methods=['GET'])
+def health_check():
+    return 'Telegram bot service is running'
 
 # Define conversation states
 CHOOSING_CATEGORY, READING_NEWS = range(2)
@@ -172,8 +181,8 @@ def handle_article_response(update: Update, context: CallbackContext):
         session['current_index'] += 1
         return show_article(update, context)
 
-def main():
-    """Start the bot"""
+def run_bot():
+    """Start the bot in a separate thread"""
     # Create the Updater and pass it your bot's token
     updater = Updater(TOKEN)
 
@@ -198,7 +207,16 @@ def main():
 
     # Start the Bot
     updater.start_polling()
-    updater.idle()
+
+def main():
+    """Start both the Flask server and the Telegram bot"""
+    # Start the bot in a separate thread
+    bot_thread = threading.Thread(target=run_bot)
+    bot_thread.start()
+
+    # Start the Flask server
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
 
 if __name__ == '__main__':
     main()
