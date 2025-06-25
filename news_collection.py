@@ -10,8 +10,8 @@ import psycopg2
 import os
 import time
 
-# Initialize EventRegistry client (replace with your API key)
-API_KEY = "4669b6ea-fa93-40b1-ad2c-1714cc3727b4"
+# Initialize EventRegistry client
+API_KEY = os.getenv("EVENT_REGISTRY_API_KEY", "4669b6ea-fa93-40b1-ad2c-1714cc3727b4")
 er = EventRegistry(apiKey=API_KEY)
 
 load_dotenv()
@@ -368,127 +368,138 @@ def fetch_trump(date_start, date_end):
     }
     return _fetch_topic(base_query, "trump")
 
-def _fetch_topic(base_query, category, topic_name):
-    """Helper to execute query and tag results by topic."""
-    complex_query = _build_query(base_query)
-    q_iter = QueryArticlesIter.initWithComplexQuery(complex_query)
-    articles = []
-    for art in q_iter.execQuery(
-        er,
-        sortBy="socialScore",
-        # sortBy="rel",
-        returnInfo=ReturnInfo(
-            articleInfo=ArticleInfoFlags(
-                # Toggle desired ArticleInfoFlags fields (True/False):
-                bodyLen=-1,
-                basicInfo=True,
-                title=True,
-                body=True,
-                url=True,
-                eventUri=True,
-                authors=True,
-                concepts=True,
-                categories=True,
-                links=True,
-                videos=True,
-                image=True,
-                socialScore=True,
-                sentiment=True,
-                location=True,
-                dates=True,
-                extractedDates=True,
-                originalArticle=True,
-                storyUri=True
-            )
-        ),
-        maxItems=100
-    ):
-        data = art.copy()
-        data["category"] = category
-        data["sub_category"] = topic_name
-        articles.append(data)
-    print(f"Retrieved {len(articles)} articles for category: {category} sub_category: {topic_name}")
-    return articles
-
-
 def get_connection(retries=5, delay=5):
-    for attempt in range(1, retries + 1):
+    """Get a database connection with retry logic"""
+    for attempt in range(retries):
         try:
-            conn = psycopg2.connect(DATABASE_URL)
-            print("✅ Successfully connected to the database.")
-            return conn
-        except psycopg2.OperationalError as e:
-            print(f"⏳ Attempt {attempt}: Could not connect to database. Retrying in {delay}s...\n{e}")
+            return psycopg2.connect(DATABASE_URL)
+        except psycopg2.Error as e:
+            if attempt == retries - 1:  # Last attempt
+                raise e
+            print(f"Database connection attempt {attempt + 1} failed. Retrying in {delay} seconds...")
             time.sleep(delay)
-    raise Exception("❌ Failed to connect to database after multiple attempts.")
 
-
-def save_articles_to_db(df):
-    """
-    Save articles DataFrame to PostgreSQL 'articles' table.
-    """
-    if df.empty:
-        print("⚠️ No articles to save.")
-        return
-
+def save_article_to_db(article, category, subcategory):
+    """Save a single article and initialize its metrics"""
     try:
         conn = get_connection()
-        cursor = conn.cursor()
-
-        for _, row in df.iterrows():
-            cursor.execute("""
-                INSERT INTO articles (uri, title, body, url, category, sub_category, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (uri) DO NOTHING;
+        with conn.cursor() as cur:
+            # Insert article
+            cur.execute("""
+                INSERT INTO articles (
+                    uri, title, body, url, image_url, category, 
+                    published_date, created_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP
+                ) ON CONFLICT (uri) DO UPDATE SET
+                    title = EXCLUDED.title,
+                    body = EXCLUDED.body,
+                    url = EXCLUDED.url,
+                    image_url = EXCLUDED.image_url,
+                    category = EXCLUDED.category,
+                    published_date = EXCLUDED.published_date
+                RETURNING uri
             """, (
-                row.get("uri", row.get("url")),
-                row.get("title"),
-                row.get("body"),
-                row.get("url"),
-                row.get("category"),
-                row.get("sub_category"),
-                datetime.now().strftime('%Y-%m-%d')
+                article.get("uri"),
+                article.get("title"),
+                article.get("body"),
+                article.get("url"),
+                article.get("image", {}).get("url"),  # Extract image URL from EventRegistry response
+                f"{category}/{subcategory}" if subcategory else category,
+                article.get("dateTime")
             ))
-
-        conn.commit()
-        cursor.close()
-        conn.close()
-        print(f"✅ Saved {len(df)} articles to the database.")
+            
+            uri = cur.fetchone()[0]
+            
+            # Initialize metrics if they don't exist
+            cur.execute("""
+                INSERT INTO article_metrics (uri, views, likes, dislikes, read_more_clicks)
+                VALUES (%s, 0, 0, 0, 0)
+                ON CONFLICT (uri) DO NOTHING
+            """, (uri,))
+            
+            conn.commit()
+            return True
     except Exception as e:
-        print(f"❌ Error saving to database: {e}")
+        print(f"Error saving article {article.get('uri')}: {str(e)}")
+        if conn:
+            conn.rollback()
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def _fetch_topic(base_query, category, topic_name):
+    """Fetch articles for a topic and save them to the database"""
+    try:
+        # Build and execute query
+        q = QueryArticles(
+            _build_query(base_query)
+        )
+        
+        articles = q.execute(
+            maxItems=100,
+            sortBy="date",
+            sortByAsc=False
+        )
+        
+        if not articles or "articles" not in articles:
+            print(f"No articles found for {category}/{topic_name}")
+            return []
+            
+        # Process and save articles
+        saved_count = 0
+        for article in articles["articles"]["results"]:
+            if save_article_to_db(article, category, topic_name):
+                saved_count += 1
+        
+        print(f"Saved {saved_count} articles for {category}/{topic_name}")
+        return articles["articles"]["results"]
+        
+    except Exception as e:
+        print(f"Error fetching {category}/{topic_name}: {str(e)}")
+        return []
 
 def main():
-    today = datetime.now().strftime('%Y-%m-%d')
-    output_dir = os.path.join("output", today)
-    os.makedirs(output_dir, exist_ok=True)
-
-    all_articles = []
-    all_articles.extend(fetch_great_power_competition(today, today))
-    all_articles.extend(fetch_conflict_and_security(today, today))
-    all_articles.extend(fetch_international_trade(today, today))
-    all_articles.extend(fetch_international_institutions(today, today))
-    all_articles.extend(fetch_geopolitics(today, today))
+    """Main function to fetch all news categories"""
+    print(f"Starting news collection at {datetime.now()}")
     
-    all_articles.extend(fetch_economy(today, today))
-    all_articles.extend(fetch_technology(today, today))
-    all_articles.extend(fetch_esg(today, today))
-    all_articles.extend(fetch_business(today, today))
-    all_articles.extend(fetch_government(today, today))
-    all_articles.extend(fetch_society(today, today))
-
-    all_articles.extend(fetch_companies(today, today))
-    all_articles.extend(fetch_mergers_acquisitions(today, today))
-    all_articles.extend(fetch_property_infra(today, today))
-    all_articles.extend(fetch_startups(today, today))
-    all_articles.extend(fetch_sea_politics(today, today))
-    all_articles.extend(fetch_government_initiatives(today, today))
-    all_articles.extend(fetch_tech_policy(today, today))
-    all_articles.extend(fetch_climate_policy(today, today))
-    all_articles.extend(fetch_consumer_trends(today, today))
-
-    df = pd.DataFrame(all_articles)
-    save_articles_to_db(df)
-    print(f"Exported {len(df)} total articles into the database.")
+    # Calculate exact 24 hour window
+    end_date = datetime.now()
+    start_date = end_date - timedelta(hours=24)
+    
+    # Format dates for EventRegistry with time precision
+    date_end = end_date.strftime("%Y-%m-%d %H:%M:%S")
+    date_start = start_date.strftime("%Y-%m-%d %H:%M:%S")
+    
+    print(f"Fetching articles from {date_start} to {date_end}")
+    
+    try:
+        # Fetch all categories
+        fetch_great_power_competition(date_start, date_end)
+        fetch_conflict_and_security(date_start, date_end)
+        fetch_international_trade(date_start, date_end)
+        fetch_international_institutions(date_start, date_end)
+        fetch_geopolitics(date_start, date_end)
+        fetch_economy(date_start, date_end)
+        fetch_technology(date_start, date_end)
+        fetch_esg(date_start, date_end)
+        fetch_business(date_start, date_end)
+        fetch_government(date_start, date_end)
+        fetch_society(date_start, date_end)
+        fetch_companies(date_start, date_end)
+        fetch_mergers_acquisitions(date_start, date_end)
+        fetch_property_infra(date_start, date_end)
+        fetch_startups(date_start, date_end)
+        fetch_sea_politics(date_start, date_end)
+        fetch_government_initiatives(date_start, date_end)
+        fetch_tech_policy(date_start, date_end)
+        fetch_climate_policy(date_start, date_end)
+        fetch_consumer_trends(date_start, date_end)
+        
+        print(f"Completed news collection at {datetime.now()}")
+    except Exception as e:
+        print(f"Error in main collection process: {str(e)}")
 
 if __name__ == "__main__":
     main()
