@@ -51,6 +51,7 @@ steps:
       - '--allow-unauthenticated'
       - '--set-env-vars'
       - 'TELEGRAM_BOT_TOKEN=${_TELEGRAM_BOT_TOKEN},DATABASE_URL=${_DATABASE_URL}'
+      - '--force'
 
 images:
   - 'gcr.io/$PROJECT_ID/news-collector'
