@@ -365,14 +365,20 @@ def _fetch_topic(base_query, category, topic_name):
         logger.info(f"Starting query execution for {category}/{topic_name}")
         results = []
         
-        article_count = 0
-        for article in q.execQuery(
+        # Get the query result first to debug
+        query_result = q.execQuery(
             er,
             sortBy="date",
             sortByAsc=False,
             returnInfo=return_info,
             maxItems=100
-        ):
+        )
+        
+        print(f"Query result type: {type(query_result)}", flush=True)
+        print(f"Query result preview: {str(query_result)[:200]}...", flush=True)
+        
+        article_count = 0
+        for article in query_result:
             article_count += 1
             if article_count <= 5:  # Log first 5 articles
                 print(f"Raw article type: {type(article)}", flush=True)
@@ -385,8 +391,13 @@ def _fetch_topic(base_query, category, topic_name):
             # Ensure we're working with a dictionary
             if isinstance(article, dict):
                 data = article.copy()
+            elif hasattr(article, '__dict__'):
+                # If it's an object with attributes, convert to dict
+                print(f"Converting object to dict for article {article_count}", flush=True)
+                data = vars(article)
             else:
                 print(f"WARNING: Article {article_count} is not a dict, type: {type(article)}", flush=True)
+                print(f"Article content: {str(article)}", flush=True)
                 # Try to convert or skip
                 continue
                 
@@ -401,14 +412,29 @@ def _fetch_topic(base_query, category, topic_name):
         saved_count = 0
         for i, article in enumerate(results):
             try:
+                # Add detailed debugging for each article before saving
+                print(f"About to save article {i+1}: type={type(article)}", flush=True)
+                if isinstance(article, dict):
+                    print(f"Article {i+1} keys: {list(article.keys())[:10]}", flush=True)
+                    print(f"Article {i+1} URI: {article.get('uri', 'NO_URI')}", flush=True)
+                else:
+                    print(f"ERROR: Article {i+1} is not a dict: {str(article)[:100]}...", flush=True)
+                    continue
+                
+                # Double-check article is still a dict before saving
+                if not isinstance(article, dict):
+                    print(f"CRITICAL: Article {i+1} became non-dict before save: {type(article)}", flush=True)
+                    continue
+                    
                 if save_article_to_db(article, category, topic_name):
                     saved_count += 1
                 if i < 3:  # Log first 3 saves
                     print(f"Processed article {i+1}/{len(results)}", flush=True)
             except Exception as e:
-                error_msg = f"Error saving individual article: {str(e)}"
+                error_msg = f"Error saving individual article {i+1}: {str(e)}"
                 logger.error(error_msg)
                 print(f"ERROR: {error_msg}", flush=True)
+                print(f"Article {i+1} type was: {type(article)}", flush=True)
                 continue
         
         print(f"Saved {saved_count}/{len(results)} articles for {category}/{topic_name}", flush=True)
