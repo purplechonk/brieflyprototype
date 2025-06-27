@@ -33,6 +33,43 @@ def health_check():
 def health():
     return {"status": "healthy", "service": "telegram-bot"}
 
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    """Handle incoming webhook updates from Telegram"""
+    try:
+        if not bot_app:
+            logger.error("Bot application not initialized")
+            return 'Bot not ready', 500
+            
+        # Get the update from Telegram
+        update_data = request.get_json(force=True)
+        update = Update.de_json(update_data, bot_app.bot)
+        
+        # Process the update in a new thread to avoid blocking
+        import threading
+        def process_update():
+            try:
+                # Create event loop for this thread
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                # Process the update
+                loop.run_until_complete(bot_app.process_update(update))
+                loop.close()
+            except Exception as e:
+                logger.error(f"Error processing update in thread: {e}")
+        
+        thread = threading.Thread(target=process_update)
+        thread.start()
+        
+        return 'OK'
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+        return 'Error', 500
+
+# Global variable to store the application
+bot_app = None
+
 # Bot conversation states
 WAITING_FOR_LABEL = 1
 
@@ -418,25 +455,21 @@ async def run_bot_async():
         import traceback
         print(f"Traceback: {traceback.format_exc()}", flush=True)
 
-def run_bot_sync():
-    """Run the bot synchronously by creating an event loop"""
-    print("🔧 run_bot_sync() function called", flush=True)
+def setup_bot():
+    """Setup the bot application without starting polling"""
+    global bot_app
+    print("🔧 setup_bot() function called", flush=True)
     
     try:
-        # Create new event loop for this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        print("🔧 Created new event loop for bot thread", flush=True)
-        
-        # Create and run bot directly in the loop
-        print("🔧 Creating bot application with event loop...", flush=True)
+        print("🔧 Creating bot application...", flush=True)
         
         if not TOKEN:
             print("❌ No TOKEN available", flush=True)
-            return
+            return None
             
-        application = Application.builder().token(TOKEN).build()
-        print("✅ Application created with event loop", flush=True)
+        # Create application
+        bot_app = Application.builder().token(TOKEN).build()
+        print("✅ Application created", flush=True)
         
         # Add handlers
         print("🔧 Adding handlers...", flush=True)
@@ -450,16 +483,48 @@ def run_bot_sync():
             fallbacks=[CommandHandler('cancel', cancel)]
         )
         
-        application.add_handler(conv_handler)
-        application.add_handler(CommandHandler('stats', stats_command))
+        bot_app.add_handler(conv_handler)
+        bot_app.add_handler(CommandHandler('stats', stats_command))
         print("✅ Handlers added", flush=True)
         
-        logger.info("Starting Telegram bot...")
-        print("🤖 Starting Telegram bot polling...", flush=True)
+        logger.info("Bot application setup complete")
+        print("✅ Bot application setup complete", flush=True)
+        return bot_app
         
-        # Use run_polling which handles the event loop properly
-        application.run_polling(drop_pending_updates=True)
-        print("🤖 Bot polling ended", flush=True)
+    except Exception as e:
+        error_msg = f"Error in setup_bot(): {str(e)}"
+        logger.error(error_msg)
+        print(f"❌ {error_msg}", flush=True)
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}", flush=True)
+        return None
+
+async def process_update_async(application, update):
+    """Process a single update asynchronously"""
+    try:
+        await application.process_update(update)
+    except Exception as e:
+        logger.error(f"Error processing update: {e}")
+
+def run_bot_sync():
+    """Setup bot and prepare for webhook mode"""
+    print("🔧 run_bot_sync() function called", flush=True)
+    
+    try:
+        # Setup the bot application
+        application = setup_bot()
+        if not application:
+            print("❌ Failed to setup bot application", flush=True)
+            return
+        
+        print("🤖 Bot is ready for webhook mode", flush=True)
+        logger.info("Bot setup complete - ready for webhook requests")
+        
+        # Keep the thread alive
+        import time
+        while True:
+            time.sleep(60)  # Sleep for 1 minute intervals
+            print("🔄 Bot thread alive check", flush=True)
         
     except Exception as e:
         error_msg = f"Error in run_bot_sync(): {str(e)}"
@@ -467,13 +532,6 @@ def run_bot_sync():
         print(f"❌ {error_msg}", flush=True)
         import traceback
         print(f"Traceback: {traceback.format_exc()}", flush=True)
-    finally:
-        try:
-            if 'loop' in locals() and not loop.is_closed():
-                loop.close()
-                print("🔧 Event loop closed", flush=True)
-        except:
-            pass
 
 def main():
     """Main function"""
