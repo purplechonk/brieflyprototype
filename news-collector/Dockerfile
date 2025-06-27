@@ -1,19 +1,25 @@
+# Use Python 3.9 slim image
 FROM python:3.9-slim
+
+# Install git and required system dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
-# Install git
-RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements file
+# Copy requirements first to leverage Docker cache
 COPY requirements.txt .
 
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy service files
+# Copy the application code
 COPY news_collection.py .
 
-# Run the news collection script
+# Set environment variables
+ENV PORT=8080
+
+# Run the application
 CMD ["python", "news_collection.py"] 

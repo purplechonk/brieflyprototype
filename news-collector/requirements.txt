@@ -1,7 +1,6 @@
-pandas
-python-dotenv
-requests
-urllib3
-eventregistry @ git+https://github.com/EventRegistry/event-registry-python.git
-psycopg2-binary
-flask 
+eventregistry==9.1
+flask==2.0.1
+psycopg2-binary==2.9.1
+python-dotenv==0.19.0
+requests==2.26.0
+urllib3 
