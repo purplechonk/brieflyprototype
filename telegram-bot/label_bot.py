@@ -33,22 +33,35 @@ def health_check():
 def health():
     return {"status": "healthy", "service": "telegram-bot"}
 
-@app.route('/webhook', methods=['POST'])
+@app.route('/webhook', methods=['POST', 'GET'])
 def webhook():
     """Handle incoming webhook updates from Telegram"""
+    if request.method == 'GET':
+        return f"Webhook endpoint is ready. Bot app status: {'initialized' if bot_app else 'not initialized'}"
+    
     try:
+        print(f"🔔 Webhook received POST request", flush=True)
+        
         if not bot_app:
-            logger.error("Bot application not initialized")
+            error_msg = "Bot application not initialized"
+            logger.error(error_msg)
+            print(f"❌ {error_msg}", flush=True)
             return 'Bot not ready', 500
+        
+        print(f"✅ Bot app is available", flush=True)
             
         # Get the update from Telegram
         update_data = request.get_json(force=True)
+        print(f"📨 Received update data: {update_data}", flush=True)
+        
         update = Update.de_json(update_data, bot_app.bot)
+        print(f"✅ Update parsed successfully", flush=True)
         
         # Process the update in a new thread to avoid blocking
         import threading
         def process_update():
             try:
+                print(f"🔄 Processing update in thread...", flush=True)
                 # Create event loop for this thread
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
@@ -56,15 +69,23 @@ def webhook():
                 # Process the update
                 loop.run_until_complete(bot_app.process_update(update))
                 loop.close()
+                print(f"✅ Update processed successfully", flush=True)
             except Exception as e:
-                logger.error(f"Error processing update in thread: {e}")
+                error_msg = f"Error processing update in thread: {e}"
+                logger.error(error_msg)
+                print(f"❌ {error_msg}", flush=True)
         
         thread = threading.Thread(target=process_update)
         thread.start()
         
+        print(f"✅ Returning OK to Telegram", flush=True)
         return 'OK'
     except Exception as e:
-        logger.error(f"Webhook error: {e}")
+        error_msg = f"Webhook error: {e}"
+        logger.error(error_msg)
+        print(f"❌ {error_msg}", flush=True)
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}", flush=True)
         return 'Error', 500
 
 # Global variable to store the application
