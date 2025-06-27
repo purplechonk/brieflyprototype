@@ -374,35 +374,106 @@ def create_bot_application():
         print(f"Traceback: {traceback.format_exc()}", flush=True)
         return None
 
+async def run_bot_async():
+    """Run the bot asynchronously"""
+    print("🔧 run_bot_async() function called", flush=True)
+    
+    try:
+        print("🔧 Creating bot application in async context...", flush=True)
+        # Create application in async context
+        if not TOKEN:
+            print("❌ No TOKEN available", flush=True)
+            return
+            
+        application = Application.builder().token(TOKEN).build()
+        print("✅ Application created in async context", flush=True)
+        
+        # Add handlers
+        print("🔧 Adding handlers...", flush=True)
+        
+        # Create conversation handler
+        conv_handler = ConversationHandler(
+            entry_points=[CommandHandler('start', start)],
+            states={
+                WAITING_FOR_LABEL: [CallbackQueryHandler(handle_label)]
+            },
+            fallbacks=[CommandHandler('cancel', cancel)]
+        )
+        
+        application.add_handler(conv_handler)
+        application.add_handler(CommandHandler('stats', stats_command))
+        print("✅ Handlers added", flush=True)
+        
+        logger.info("Starting Telegram bot...")
+        print("🤖 Starting Telegram bot polling...", flush=True)
+        
+        # Use the simpler run_polling method
+        application.run_polling(drop_pending_updates=True)
+        print("🤖 Bot polling ended", flush=True)
+            
+    except Exception as e:
+        error_msg = f"Error in run_bot_async(): {str(e)}"
+        logger.error(error_msg)
+        print(f"❌ {error_msg}", flush=True)
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}", flush=True)
+
 def run_bot_sync():
-    """Run the bot synchronously"""
+    """Run the bot synchronously by creating an event loop"""
     print("🔧 run_bot_sync() function called", flush=True)
     
     try:
-        print("🔧 Creating bot application...", flush=True)
-        application = create_bot_application()
+        # Create new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        print("🔧 Created new event loop for bot thread", flush=True)
         
-        if application:
-            logger.info("Starting Telegram bot...")
-            print("🤖 Starting Telegram bot polling...", flush=True)
+        # Create and run bot directly in the loop
+        print("🔧 Creating bot application with event loop...", flush=True)
+        
+        if not TOKEN:
+            print("❌ No TOKEN available", flush=True)
+            return
             
-            # Use run_polling without custom event loop
-            application.run_polling(
-                drop_pending_updates=True,
-                close_loop=False,
-                stop_signals=None  # Disable signal handling in thread
-            )
-            print("🤖 Bot polling ended", flush=True)
-        else:
-            logger.error("Failed to create bot application")
-            print("❌ Failed to create bot application", flush=True)
-            
+        application = Application.builder().token(TOKEN).build()
+        print("✅ Application created with event loop", flush=True)
+        
+        # Add handlers
+        print("🔧 Adding handlers...", flush=True)
+        
+        # Create conversation handler
+        conv_handler = ConversationHandler(
+            entry_points=[CommandHandler('start', start)],
+            states={
+                WAITING_FOR_LABEL: [CallbackQueryHandler(handle_label)]
+            },
+            fallbacks=[CommandHandler('cancel', cancel)]
+        )
+        
+        application.add_handler(conv_handler)
+        application.add_handler(CommandHandler('stats', stats_command))
+        print("✅ Handlers added", flush=True)
+        
+        logger.info("Starting Telegram bot...")
+        print("🤖 Starting Telegram bot polling...", flush=True)
+        
+        # Use run_polling which handles the event loop properly
+        application.run_polling(drop_pending_updates=True)
+        print("🤖 Bot polling ended", flush=True)
+        
     except Exception as e:
         error_msg = f"Error in run_bot_sync(): {str(e)}"
         logger.error(error_msg)
         print(f"❌ {error_msg}", flush=True)
         import traceback
         print(f"Traceback: {traceback.format_exc()}", flush=True)
+    finally:
+        try:
+            if 'loop' in locals() and not loop.is_closed():
+                loop.close()
+                print("🔧 Event loop closed", flush=True)
+        except:
+            pass
 
 def main():
     """Main function"""
