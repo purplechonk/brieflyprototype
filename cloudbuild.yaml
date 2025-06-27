@@ -35,7 +35,7 @@ steps:
       - 'gcr.io/$PROJECT_ID/telegram-bot:$COMMIT_SHA'
     id: 'push-telegram-bot'
 
-  # Deploy news collector to Cloud Run
+  # Deploy news collector to Cloud Run (europe-west1)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
@@ -45,17 +45,15 @@ steps:
       - '--image'
       - 'gcr.io/$PROJECT_ID/news-collector:$COMMIT_SHA'
       - '--region'
-      - 'asia-southeast1'
+      - 'europe-west1'
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
       - '--set-env-vars'
       - 'EVENT_REGISTRY_API_KEY=${_EVENT_REGISTRY_API_KEY},DATABASE_URL=${_DATABASE_URL}'
-      - '--add-cloudsql-instances'
-      - '${_CLOUD_SQL_INSTANCE}'
     id: 'deploy-news-collector'
 
-  # Deploy telegram bot to Cloud Run
+  # Deploy telegram bot to Cloud Run (europe-west1)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
@@ -65,14 +63,12 @@ steps:
       - '--image'
       - 'gcr.io/$PROJECT_ID/telegram-bot:$COMMIT_SHA'
       - '--region'
-      - 'asia-southeast1'
+      - 'europe-west1'
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
       - '--set-env-vars'
       - 'TELEGRAM_BOT_TOKEN=${_TELEGRAM_BOT_TOKEN},DATABASE_URL=${_DATABASE_URL}'
-      - '--add-cloudsql-instances'
-      - '${_CLOUD_SQL_INSTANCE}'
     id: 'deploy-telegram-bot'
 
 # Substitution variables (you'll set these in Cloud Build triggers)
