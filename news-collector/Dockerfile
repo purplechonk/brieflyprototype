@@ -23,3 +23,5 @@ ENV PORT=8080
 
 # Run the application
 CMD ["python", "news_collection.py"] 
+
+#testtest
