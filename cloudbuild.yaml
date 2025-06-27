@@ -1,14 +1,39 @@
-options:
-  logging: CLOUD_LOGGING_ONLY
-
 steps:
-  # Build the news collector service
+  # Build news collector service
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/news-collector', '-f', 'news-collector/Dockerfile', '.']
+    args: 
+      - 'build'
+      - '-f'
+      - 'news-collector/Dockerfile'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/news-collector:$COMMIT_SHA'
+      - '.'
+    id: 'build-news-collector'
 
-  # Push the news collector image
+  # Push news collector image
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/news-collector']
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/news-collector:$COMMIT_SHA'
+    id: 'push-news-collector'
+
+  # Build telegram bot service
+  - name: 'gcr.io/cloud-builders/docker'
+    args: 
+      - 'build'
+      - '-f'
+      - 'telegram-bot/Dockerfile'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/telegram-bot:$COMMIT_SHA'
+      - '.'
+    id: 'build-telegram-bot'
+
+  # Push telegram bot image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/telegram-bot:$COMMIT_SHA'
+    id: 'push-telegram-bot'
 
   # Deploy news collector to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -16,18 +41,46 @@ steps:
     args:
       - 'run'
       - 'deploy'
-      - 'briefly-news-collector'
+      - 'news-collector'
       - '--image'
-      - 'gcr.io/$PROJECT_ID/news-collector'
+      - 'gcr.io/$PROJECT_ID/news-collector:$COMMIT_SHA'
       - '--region'
-      - 'europe-west1'
+      - 'asia-southeast1'
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
       - '--set-env-vars'
       - 'EVENT_REGISTRY_API_KEY=${_EVENT_REGISTRY_API_KEY},DATABASE_URL=${_DATABASE_URL}'
-      - '--port'
-      - '8080'
+      - '--add-cloudsql-instances'
+      - '${_CLOUD_SQL_INSTANCE}'
+    id: 'deploy-news-collector'
 
-images:
-  - 'gcr.io/$PROJECT_ID/news-collector' 
+  # Deploy telegram bot to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'telegram-bot'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/telegram-bot:$COMMIT_SHA'
+      - '--region'
+      - 'asia-southeast1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--set-env-vars'
+      - 'TELEGRAM_BOT_TOKEN=${_TELEGRAM_BOT_TOKEN},DATABASE_URL=${_DATABASE_URL}'
+      - '--add-cloudsql-instances'
+      - '${_CLOUD_SQL_INSTANCE}'
+    id: 'deploy-telegram-bot'
+
+# Substitution variables (you'll set these in Cloud Build triggers)
+substitutions:
+  _EVENT_REGISTRY_API_KEY: 'your-event-registry-api-key'
+  _DATABASE_URL: 'your-database-url'
+  _CLOUD_SQL_INSTANCE: 'briefly-prototype:asia-southeast1:news-db'
+  _TELEGRAM_BOT_TOKEN: 'your-telegram-bot-token'
+
+options:
+  logging: CLOUD_LOGGING_ONLY 

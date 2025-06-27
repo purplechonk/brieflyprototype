@@ -7,13 +7,14 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements file
-COPY requirements.txt .
+COPY telegram-bot/requirements.txt .
 
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy service files
-COPY label_bot.py .
+COPY telegram-bot/label_bot.py .
 
 # Run the Telegram bot
+EXPOSE 8080
 CMD ["python", "label_bot.py"] 
