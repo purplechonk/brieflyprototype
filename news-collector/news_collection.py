@@ -246,6 +246,22 @@ def save_article_to_db(article, category, subcategory):
     """Save a single article and initialize its metrics"""
     conn = None
     try:
+        # Add debugging to check article type
+        print(f"Article type: {type(article)}", flush=True)
+        print(f"Article content preview: {str(article)[:100]}...", flush=True)
+        
+        # Handle case where article might be a string
+        if isinstance(article, str):
+            print(f"ERROR: Article is a string, not a dictionary: {article[:100]}...", flush=True)
+            logger.error(f"Article is a string, not a dictionary: {article[:100]}...")
+            return False
+        
+        # Ensure article is a dictionary
+        if not isinstance(article, dict):
+            print(f"ERROR: Article is not a dictionary, type: {type(article)}", flush=True)
+            logger.error(f"Article is not a dictionary, type: {type(article)}")
+            return False
+        
         print(f"Saving article: {article.get('uri', 'NO_URI')[:30]}...", flush=True)
         logger.info(f"Saving article: {article.get('uri')[:30]}...")
         conn = get_connection()
@@ -270,7 +286,7 @@ def save_article_to_db(article, category, subcategory):
                 article.get("title"),
                 article.get("body"),
                 article.get("url"),
-                article.get("image", {}).get("url"),
+                article.get("image", {}).get("url") if isinstance(article.get("image"), dict) else None,
                 f"{category}/{subcategory}" if subcategory else category,
                 article.get("dateTime")
             ))
@@ -289,7 +305,7 @@ def save_article_to_db(article, category, subcategory):
             conn.commit()
             return True
     except Exception as e:
-        error_msg = f"Error saving article {article.get('uri')}: {str(e)}"
+        error_msg = f"Error saving article {article.get('uri') if isinstance(article, dict) else 'UNKNOWN'}: {str(e)}"
         logger.error(error_msg)
         print(f"ERROR: {error_msg}", flush=True)
         if conn:
@@ -359,9 +375,21 @@ def _fetch_topic(base_query, category, topic_name):
         ):
             article_count += 1
             if article_count <= 5:  # Log first 5 articles
-                print(f"Processing article {article_count}: {article.get('title', 'NO_TITLE')[:50]}...", flush=True)
+                print(f"Raw article type: {type(article)}", flush=True)
+                print(f"Raw article preview: {str(article)[:200]}...", flush=True)
+                if hasattr(article, 'get'):
+                    print(f"Processing article {article_count}: {article.get('title', 'NO_TITLE')[:50]}...", flush=True)
+                else:
+                    print(f"Processing article {article_count}: Article has no 'get' method", flush=True)
             
-            data = article.copy()
+            # Ensure we're working with a dictionary
+            if isinstance(article, dict):
+                data = article.copy()
+            else:
+                print(f"WARNING: Article {article_count} is not a dict, type: {type(article)}", flush=True)
+                # Try to convert or skip
+                continue
+                
             data["category"] = category
             data["sub-category"] = topic_name
             results.append(data)
