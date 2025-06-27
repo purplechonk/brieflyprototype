@@ -456,9 +456,9 @@ async def run_bot_async():
         print(f"Traceback: {traceback.format_exc()}", flush=True)
 
 def setup_bot():
-    """Setup the bot application without starting polling"""
+    """Setup the bot application in main thread"""
     global bot_app
-    print("🔧 setup_bot() function called", flush=True)
+    print("🔧 setup_bot() function called in main thread", flush=True)
     
     try:
         print("🔧 Creating bot application...", flush=True)
@@ -466,6 +466,15 @@ def setup_bot():
         if not TOKEN:
             print("❌ No TOKEN available", flush=True)
             return None
+        
+        # Create event loop if none exists
+        try:
+            loop = asyncio.get_event_loop()
+            print("✅ Using existing event loop", flush=True)
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            print("✅ Created new event loop", flush=True)
             
         # Create application
         bot_app = Application.builder().token(TOKEN).build()
@@ -499,39 +508,7 @@ def setup_bot():
         print(f"Traceback: {traceback.format_exc()}", flush=True)
         return None
 
-async def process_update_async(application, update):
-    """Process a single update asynchronously"""
-    try:
-        await application.process_update(update)
-    except Exception as e:
-        logger.error(f"Error processing update: {e}")
-
-def run_bot_sync():
-    """Setup bot and prepare for webhook mode"""
-    print("🔧 run_bot_sync() function called", flush=True)
-    
-    try:
-        # Setup the bot application
-        application = setup_bot()
-        if not application:
-            print("❌ Failed to setup bot application", flush=True)
-            return
-        
-        print("🤖 Bot is ready for webhook mode", flush=True)
-        logger.info("Bot setup complete - ready for webhook requests")
-        
-        # Keep the thread alive
-        import time
-        while True:
-            time.sleep(60)  # Sleep for 1 minute intervals
-            print("🔄 Bot thread alive check", flush=True)
-        
-    except Exception as e:
-        error_msg = f"Error in run_bot_sync(): {str(e)}"
-        logger.error(error_msg)
-        print(f"❌ {error_msg}", flush=True)
-        import traceback
-        print(f"Traceback: {traceback.format_exc()}", flush=True)
+# Removed unused functions since we're using webhook mode in main thread
 
 def main():
     """Main function"""
@@ -555,11 +532,13 @@ def main():
     
     logger.info("Starting Telegram bot service")
     
-    # Start bot in a separate thread
-    print("🚀 Starting bot thread...", flush=True)
-    bot_thread = threading.Thread(target=run_bot_sync, daemon=True)
-    bot_thread.start()
-    print("✅ Bot thread started", flush=True)
+    # Setup bot in main thread (has event loop)
+    print("🚀 Setting up bot in main thread...", flush=True)
+    bot_application = setup_bot()
+    if not bot_application:
+        print("❌ Failed to setup bot application", flush=True)
+        return
+    print("✅ Bot setup complete", flush=True)
     
     # Start Flask server
     port = int(os.environ.get('PORT', 8080))
