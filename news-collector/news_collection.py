@@ -9,12 +9,12 @@ from dotenv import load_dotenv
 import psycopg2
 import os
 import time
-from flask import Flask
+from flask import Flask, request
 import sys
 import logging
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 load_dotenv()
@@ -22,27 +22,65 @@ load_dotenv()
 api_key = os.getenv('EVENT_REGISTRY_API_KEY')
 DATABASE_URL = os.getenv('DATABASE_URL')
 
-logger.info(f"Starting with API key: {api_key[:8]}... and DB URL format: {DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else 'No @ in URL'}")
+logger.info(f"Starting with API key: {api_key[:8] if api_key else 'None'}... and DB URL format: {DATABASE_URL.split('@')[1] if DATABASE_URL and '@' in DATABASE_URL else 'No @ in URL'}")
 
-er = EventRegistry(apiKey=api_key)
+if not api_key:
+    logger.error("EVENT_REGISTRY_API_KEY not found in environment variables!")
+if not DATABASE_URL:
+    logger.error("DATABASE_URL not found in environment variables!")
+
+er = EventRegistry(apiKey=api_key) if api_key else None
 
 app = Flask(__name__)
 
 @app.route('/', methods=['GET'])
 def health_check():
+    logger.info("Health check endpoint called")
     return 'News collector service is running'
 
 @app.route('/', methods=['POST'])
 def collect_news():
     try:
-        logger.info("Starting news collection via HTTP trigger")
+        logger.info("POST request received - starting news collection")
         sys.stdout.flush()
+        
+        if not er:
+            logger.error("EventRegistry not initialized - missing API key")
+            return 'Error: EventRegistry API key not configured', 500
+            
+        if not DATABASE_URL:
+            logger.error("Database URL not configured")
+            return 'Error: Database URL not configured', 500
+            
         main()
+        logger.info("News collection completed successfully")
         return 'News collection completed successfully', 200
     except Exception as e:
         logger.error(f"Error in collect_news endpoint: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         sys.stdout.flush()
         return f'Error collecting news: {str(e)}', 500
+
+@app.route('/trigger', methods=['GET', 'POST'])
+def trigger_collection():
+    """Alternative endpoint for triggering news collection"""
+    try:
+        logger.info("Manual trigger endpoint called")
+        sys.stdout.flush()
+        
+        if not er:
+            logger.error("EventRegistry not initialized - missing API key")
+            return 'Error: EventRegistry API key not configured', 500
+            
+        main()
+        logger.info("Manual trigger completed successfully")
+        return 'News collection triggered successfully', 200
+    except Exception as e:
+        logger.error(f"Error in trigger endpoint: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return f'Error: {str(e)}', 500
 
 def _build_query(base_query):
     """
@@ -172,11 +210,17 @@ def save_article_to_db(article, category, subcategory):
 def _fetch_topic(base_query, category, topic_name):
     """Fetch articles for a topic and save them to the database"""
     try:
-        logger.info(f"\nFetching {category}/{topic_name}")
+        logger.info(f"Fetching {category}/{topic_name}")
         sys.stdout.flush()
+        
+        if not er:
+            logger.error("EventRegistry not initialized")
+            return []
         
         # Build and execute query
         complex_query = _build_query(base_query)
+        logger.info(f"Complex query built: {complex_query}")
+        
         q = QueryArticlesIter.initWithComplexQuery(complex_query)
         
         return_info = ReturnInfo(
@@ -203,7 +247,9 @@ def _fetch_topic(base_query, category, topic_name):
             )
         )
         
+        logger.info(f"Starting query execution for {category}/{topic_name}")
         results = []
+        
         for article in q.execQuery(
             er,
             sortBy="date",
@@ -234,6 +280,8 @@ def _fetch_topic(base_query, category, topic_name):
         
     except Exception as e:
         logger.error(f"Error fetching {category}/{topic_name}: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         sys.stdout.flush()
         return []
 
@@ -255,24 +303,29 @@ def main():
     
     try:
         # Fetch only geopolitics and Singapore news
-        fetch_geopolitics(date_start, date_end)
-        fetch_singapore_news(date_start, date_end)
+        logger.info("About to fetch geopolitics articles")
+        geopolitics_results = fetch_geopolitics(date_start, date_end)
+        logger.info(f"Geopolitics fetch completed with {len(geopolitics_results)} articles")
         
-        logger.info(f"Completed news collection at {datetime.now()}")
+        logger.info("About to fetch Singapore articles")
+        singapore_results = fetch_singapore_news(date_start, date_end)
+        logger.info(f"Singapore fetch completed with {len(singapore_results)} articles")
+        
+        total_articles = len(geopolitics_results) + len(singapore_results)
+        logger.info(f"Completed news collection at {datetime.now()} - Total articles: {total_articles}")
         sys.stdout.flush()
+        
     except Exception as e:
         logger.error(f"Error in main collection process: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         sys.stdout.flush()
 
-# Run news collection on startup and then let Flask handle requests
 if __name__ == "__main__":
-    try:
-        # Run initial news collection
-        logger.info("Running initial news collection on startup")
-        main()
-    except Exception as e:
-        logger.error(f"Error in startup news collection: {str(e)}")
+    logger.info("Starting news collector service")
     
-    # Start the Flask server
+    # Start the Flask server without running collection on startup
+    # Collection will be triggered via POST requests
     port = int(os.environ.get('PORT', 8080))
-    app.run(host='0.0.0.0', port=port)
+    logger.info(f"Starting Flask server on port {port}")
+    app.run(host='0.0.0.0', port=port, debug=False)
