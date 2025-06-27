@@ -48,12 +48,15 @@ def get_db_connection():
 
 def get_unlabeled_articles_for_user(user_id, limit=10):
     """Get articles that haven't been labeled by this specific user yet"""
+    print(f"🔍 Getting unlabeled articles for user {user_id}", flush=True)
     conn = get_db_connection()
     if not conn:
+        print("❌ No database connection", flush=True)
         return []
     
     try:
         cursor = conn.cursor()
+        print(f"🔍 Querying for today's articles...", flush=True)
         # Get articles from today that this user hasn't labeled yet
         cursor.execute("""
             SELECT a.uri, a.title, a.body, a.url, a.category, a.published_date
@@ -61,14 +64,16 @@ def get_unlabeled_articles_for_user(user_id, limit=10):
             LEFT JOIN user_interactions ui ON a.uri = ui.uri AND ui.user_id = %s 
                 AND ui.interaction_type IN ('positive', 'negative', 'neutral')
             WHERE ui.id IS NULL
-            AND DATE(a.published_date) = CURRENT_DATE
+            AND a.published_date >= CURRENT_DATE
             ORDER BY a.published_date DESC 
             LIMIT %s
         """, (user_id, limit))
         articles = cursor.fetchall()
+        print(f"🔍 Found {len(articles)} articles from today", flush=True)
         
         # If no articles from today, get recent unlabeled articles
         if not articles:
+            print(f"🔍 No today's articles, getting recent ones...", flush=True)
             cursor.execute("""
                 SELECT a.uri, a.title, a.body, a.url, a.category, a.published_date
                 FROM articles a
@@ -79,13 +84,18 @@ def get_unlabeled_articles_for_user(user_id, limit=10):
                 LIMIT %s
             """, (user_id, limit))
             articles = cursor.fetchall()
+            print(f"🔍 Found {len(articles)} recent articles", flush=True)
         
         cursor.close()
         conn.close()
         logger.info(f"Found {len(articles)} unlabeled articles for user {user_id}")
         return articles
     except Exception as e:
-        logger.error(f"Error fetching articles for user {user_id}: {str(e)}")
+        error_msg = f"Error fetching articles for user {user_id}: {str(e)}"
+        logger.error(error_msg)
+        print(f"❌ {error_msg}", flush=True)
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}", flush=True)
         return []
 
 def save_user_article_label(user_id, article_uri, label):
@@ -334,22 +344,23 @@ def create_bot_application():
         return None
 
 def run_bot_sync():
-    """Run the bot synchronously in a new event loop"""
+    """Run the bot synchronously"""
     print("🔧 run_bot_sync() function called", flush=True)
     
     try:
-        # Create new event loop for this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        print("🔧 Created new event loop for bot thread", flush=True)
-        
         print("🔧 Creating bot application...", flush=True)
         application = create_bot_application()
         
         if application:
             logger.info("Starting Telegram bot...")
             print("🤖 Starting Telegram bot polling...", flush=True)
-            application.run_polling(drop_pending_updates=True)
+            
+            # Use run_polling without custom event loop
+            application.run_polling(
+                drop_pending_updates=True,
+                close_loop=False,
+                stop_signals=None  # Disable signal handling in thread
+            )
             print("🤖 Bot polling ended", flush=True)
         else:
             logger.error("Failed to create bot application")
@@ -359,14 +370,8 @@ def run_bot_sync():
         error_msg = f"Error in run_bot_sync(): {str(e)}"
         logger.error(error_msg)
         print(f"❌ {error_msg}", flush=True)
-    finally:
-        # Clean up the event loop
-        try:
-            if loop and not loop.is_closed():
-                loop.close()
-                print("🔧 Event loop closed", flush=True)
-        except Exception as e:
-            print(f"Error closing loop: {e}", flush=True)
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}", flush=True)
 
 def main():
     """Main function"""
