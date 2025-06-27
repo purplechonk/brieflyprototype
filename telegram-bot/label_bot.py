@@ -22,258 +22,327 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 print(f"Bot token present: {bool(TOKEN)}", flush=True)
 print(f"Database URL present: {bool(DATABASE_URL)}", flush=True)
 
-# Create Flask app
+# Flask app for health checks
 app = Flask(__name__)
 
-@app.route('/', methods=['GET'])
+@app.route('/')
 def health_check():
-    return 'Telegram bot service is running'
+    return "Telegram Bot is running!"
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    """Handle webhook updates from Telegram"""
-    return 'OK'
+@app.route('/health')
+def health():
+    return {"status": "healthy", "service": "telegram-bot"}
 
-# Define conversation states
-CHOOSING_CATEGORY, READING_NEWS = range(2)
+# Bot conversation states
+WAITING_FOR_LABEL = 1
 
-# Store user sessions
-user_sessions = {}
-
-def get_connection():
-    """Get database connection with retry logic"""
+def get_db_connection():
+    """Get database connection"""
     try:
-        return psycopg2.connect(DATABASE_URL)
-    except psycopg2.OperationalError as e:
-        logger.error(f"Database connection failed: {e}")
-        print(f"❌ Database connection failed: {e}", flush=True)
-        print(f"🔍 DATABASE_URL: {DATABASE_URL[:50] if DATABASE_URL else 'None'}...", flush=True)
-        raise e
-
-def load_articles(category):
-    """Load articles from database based on category"""
-    try:
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                if category == "geopolitics":
-                    cur.execute("""
-                        SELECT uri, title, body, url FROM articles
-                        WHERE category LIKE '%Geopolitics%'
-                        ORDER BY created_at DESC
-                        LIMIT 10
-                    """)
-                else:  # singapore news
-                    cur.execute("""
-                        SELECT uri, title, body, url FROM articles
-                        WHERE category LIKE '%Singapore%'
-                        ORDER BY created_at DESC
-                        LIMIT 10
-                    """)
-                
-                articles = cur.fetchall()
-                logger.info(f"Loaded {len(articles)} articles for category: {category}")
-                return articles
-        finally:
-            conn.close()
+        conn = psycopg2.connect(DATABASE_URL)
+        logger.info("Database connection successful")
+        return conn
     except Exception as e:
-        logger.error(f"Error loading articles: {e}")
-        print(f"❌ Error loading articles: {e}", flush=True)
+        logger.error(f"Database connection failed: {str(e)}")
+        return None
+
+def get_unlabeled_articles_for_user(user_id, limit=10):
+    """Get articles that haven't been labeled by this specific user yet"""
+    conn = get_db_connection()
+    if not conn:
+        return []
+    
+    try:
+        cursor = conn.cursor()
+        # Get articles from today that this user hasn't labeled yet
+        cursor.execute("""
+            SELECT a.uri, a.title, a.body, a.url, a.category, a.published_date
+            FROM articles a
+            LEFT JOIN user_interactions ui ON a.uri = ui.uri AND ui.user_id = %s 
+                AND ui.interaction_type IN ('positive', 'negative', 'neutral')
+            WHERE ui.id IS NULL
+            AND DATE(a.published_date) = CURRENT_DATE
+            ORDER BY a.published_date DESC 
+            LIMIT %s
+        """, (user_id, limit))
+        articles = cursor.fetchall()
+        
+        # If no articles from today, get recent unlabeled articles
+        if not articles:
+            cursor.execute("""
+                SELECT a.uri, a.title, a.body, a.url, a.category, a.published_date
+                FROM articles a
+                LEFT JOIN user_interactions ui ON a.uri = ui.uri AND ui.user_id = %s 
+                    AND ui.interaction_type IN ('positive', 'negative', 'neutral')
+                WHERE ui.id IS NULL
+                ORDER BY a.published_date DESC 
+                LIMIT %s
+            """, (user_id, limit))
+            articles = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        logger.info(f"Found {len(articles)} unlabeled articles for user {user_id}")
+        return articles
+    except Exception as e:
+        logger.error(f"Error fetching articles for user {user_id}: {str(e)}")
         return []
 
-def save_user_response(user_id, uri, response):
-    """Save user's like/dislike response"""
-    try:
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                # Check if user_responses table exists, if not create it
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS user_responses (
-                        id SERIAL PRIMARY KEY,
-                        user_id BIGINT NOT NULL,
-                        uri TEXT NOT NULL,
-                        response TEXT NOT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                
-                cur.execute("""
-                    INSERT INTO user_responses (user_id, uri, response)
-                    VALUES (%s, %s, %s)
-                """, (user_id, uri, response))
-            conn.commit()
-            logger.info(f"Saved user response: {user_id} -> {response}")
-        finally:
-            conn.close()
-    except Exception as e:
-        logger.error(f"Error saving response: {e}")
-        print(f"❌ Error saving response: {e}", flush=True)
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Start the conversation and ask for category choice"""
-    keyboard = [
-        [
-            InlineKeyboardButton("🌍 Geopolitics News", callback_data="geopolitics"),
-            InlineKeyboardButton("🇸🇬 Singapore News", callback_data="singapore")
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        "Welcome to Briefly News Bot! 📰\n\nPlease choose a news category:",
-        reply_markup=reply_markup
-    )
-    return CHOOSING_CATEGORY
-
-async def show_article(update: Update, context: ContextTypes.DEFAULT_TYPE, show_full=False):
-    """Show article with options"""
-    user_id = update.effective_user.id
-    session = user_sessions.get(user_id)
-    
-    if not session or session['current_index'] >= len(session['articles']):
-        await update.callback_query.message.reply_text("No more articles available. Use /start to begin again.")
-        return ConversationHandler.END
-    
-    article = session['articles'][session['current_index']]
-    uri, title, body, url = article
-    
-    if show_full:
-        text = f"*{title}*\n\n{body}\n\n🔗 [Read original article]({url})"
-        keyboard = [
-            [
-                InlineKeyboardButton("👍 Like", callback_data="like"),
-                InlineKeyboardButton("👎 Dislike", callback_data="dislike"),
-            ],
-            [InlineKeyboardButton("➡️ Next Article", callback_data="next")]
-        ]
-    else:
-        # Show only first 300 characters of body
-        preview = body[:300] + "..." if len(body) > 300 else body
-        text = f"*{title}*\n\n{preview}"
-        keyboard = [
-            [
-                InlineKeyboardButton("👍 Like", callback_data="like"),
-                InlineKeyboardButton("👎 Dislike", callback_data="dislike"),
-            ],
-            [InlineKeyboardButton("📖 Read More", callback_data="read_more")]
-        ]
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
+def save_user_article_label(user_id, article_uri, label):
+    """Save user's label for a specific article"""
+    conn = get_db_connection()
+    if not conn:
+        return False
     
     try:
-        await update.callback_query.edit_message_text(
-            text,
-            reply_markup=reply_markup,
-            parse_mode='Markdown',
-            disable_web_page_preview=True
-        )
+        cursor = conn.cursor()
+        # Use INSERT ... ON CONFLICT to handle updates
+        cursor.execute("""
+            INSERT INTO user_interactions (user_id, uri, interaction_type)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (user_id, uri)
+            DO UPDATE SET 
+                interaction_type = EXCLUDED.interaction_type,
+                updated_at = CURRENT_TIMESTAMP
+        """, (user_id, article_uri, label))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        logger.info(f"Saved label '{label}' for user {user_id}, article {article_uri}")
+        return True
     except Exception as e:
-        logger.error(f"Error editing message: {e}")
-        await update.callback_query.message.reply_text(
-            text,
-            reply_markup=reply_markup,
-            parse_mode='Markdown',
-            disable_web_page_preview=True
-        )
-    
-    return READING_NEWS
+        logger.error(f"Error saving user label: {str(e)}")
+        return False
 
-async def handle_category_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle category selection"""
-    query = update.callback_query
-    await query.answer()
+def get_user_labeling_stats(user_id):
+    """Get user's labeling statistics"""
+    conn = get_db_connection()
+    if not conn:
+        return None
     
-    user_id = update.effective_user.id
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_labeled,
+                COUNT(CASE WHEN interaction_type = 'positive' THEN 1 END) as positive_count,
+                COUNT(CASE WHEN interaction_type = 'negative' THEN 1 END) as negative_count,
+                COUNT(CASE WHEN interaction_type = 'neutral' THEN 1 END) as neutral_count
+            FROM user_interactions 
+            WHERE user_id = %s 
+            AND interaction_type IN ('positive', 'negative', 'neutral')
+        """, (user_id,))
+        stats = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return stats
+    except Exception as e:
+        logger.error(f"Error getting user stats: {str(e)}")
+        return None
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start command handler"""
+    user = update.effective_user
+    user_id = user.id
+    logger.info(f"User {user.first_name} (ID: {user_id}) started the bot")
     
-    # Load articles based on category
-    articles = load_articles(query.data)
+    # Get user's labeling stats
+    stats = get_user_labeling_stats(user_id)
+    stats_text = ""
+    if stats:
+        total, positive, negative, neutral = stats
+        if total > 0:
+            stats_text = f"\n📊 Your stats: {total} articles labeled ({positive} positive, {negative} negative, {neutral} neutral)"
+    
+    # Get articles this user hasn't labeled yet
+    articles = get_unlabeled_articles_for_user(user_id)
     
     if not articles:
-        await query.message.reply_text("No articles available at the moment. Please try again later.")
+        await update.message.reply_text(
+            f"🎉 Great job! You've labeled all available articles!{stats_text}\n\n"
+            "New articles will be available after the next news collection (runs at midnight)."
+        )
         return ConversationHandler.END
     
-    # Initialize user session
-    user_sessions[user_id] = {
-        'articles': articles,
-        'current_index': 0,
-        'category': query.data
-    }
+    # Store user info and articles in context
+    context.user_data['user_id'] = user_id
+    context.user_data['articles'] = articles
+    context.user_data['current_index'] = 0
     
-    await query.message.reply_text(f"Loading {query.data} articles... 📰")
+    # Send welcome message with stats
+    welcome_msg = f"Welcome to Briefly News Labeling Bot! 📰{stats_text}\n\n"
+    welcome_msg += f"You have {len(articles)} articles to label. Let's start!"
     
-    # Show first article
-    return await show_article(update, context)
+    await update.message.reply_text(welcome_msg)
+    
+    # Send first article
+    return await send_article_for_labeling(update, context)
 
-async def handle_article_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle user's response to an article"""
+async def send_article_for_labeling(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Send article for user to label"""
+    articles = context.user_data.get('articles', [])
+    current_index = context.user_data.get('current_index', 0)
+    
+    if current_index >= len(articles):
+        await update.message.reply_text("All articles have been processed! Thank you.")
+        return ConversationHandler.END
+    
+    article = articles[current_index]
+    article_uri, title, body, url, category, published_date = article
+    
+    # Store current article URI
+    context.user_data['current_article_uri'] = article_uri
+    
+    # Create inline keyboard for labeling
+    keyboard = [
+        [InlineKeyboardButton("📈 Positive", callback_data="positive")],
+        [InlineKeyboardButton("📉 Negative", callback_data="negative")],
+        [InlineKeyboardButton("😐 Neutral", callback_data="neutral")],
+        [InlineKeyboardButton("⏭️ Skip", callback_data="skip")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Format message
+    message = f"**Article {current_index + 1}/{len(articles)}**\n\n"
+    message += f"**Title:** {title}\n\n"
+    message += f"**Category:** {category}\n\n"
+    message += f"**Published:** {published_date.strftime('%Y-%m-%d %H:%M') if published_date else 'Unknown'}\n\n"
+    message += f"**Content:** {body[:400]}{'...' if len(body) > 400 else ''}\n\n"
+    message += f"**URL:** {url}\n\n"
+    message += "Please select a label for this article:"
+    
+    if update.message:
+        await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+    else:
+        await update.callback_query.message.reply_text(message, reply_markup=reply_markup, parse_mode='Markdown')
+    
+    return WAITING_FOR_LABEL
+
+async def handle_label(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle user's label selection"""
     query = update.callback_query
     await query.answer()
     
-    user_id = update.effective_user.id
-    session = user_sessions.get(user_id)
+    label = query.data
+    user_id = context.user_data.get('user_id')
+    article_uri = context.user_data.get('current_article_uri')
+    current_index = context.user_data.get('current_index', 0)
+    articles = context.user_data.get('articles', [])
     
-    if not session:
-        await query.message.reply_text("Session expired. Use /start to begin again.")
+    if label != "skip":
+        # Save user's label for this article
+        if save_user_article_label(user_id, article_uri, label):
+            emoji = {"positive": "📈", "negative": "📉", "neutral": "😐"}.get(label, "✅")
+            await query.edit_message_text(f"{emoji} Article labeled as: **{label}**", parse_mode='Markdown')
+        else:
+            await query.edit_message_text("❌ Error saving label")
+    else:
+        await query.edit_message_text("⏭️ Article skipped")
+    
+    # Move to next article
+    context.user_data['current_index'] += 1
+    
+    # Check if this was the last article
+    if context.user_data['current_index'] >= len(articles):
+        # Get final stats
+        stats = get_user_labeling_stats(user_id)
+        if stats:
+            total, positive, negative, neutral = stats
+            final_msg = f"🎉 **Labeling session complete!**\n\n"
+            final_msg += f"📊 **Your total stats:**\n"
+            final_msg += f"• Total labeled: {total}\n"
+            final_msg += f"• Positive: {positive}\n"
+            final_msg += f"• Negative: {negative}\n"
+            final_msg += f"• Neutral: {neutral}\n\n"
+            final_msg += "Thank you for helping improve our news analysis! 🙏\n"
+            final_msg += "Use /start again to label more articles."
+            
+            await query.message.reply_text(final_msg, parse_mode='Markdown')
+        
         return ConversationHandler.END
     
-    if query.data in ['like', 'dislike']:
-        # Save response
-        current_article = session['articles'][session['current_index']]
-        uri = current_article[0]
-        save_user_response(user_id, uri, query.data)
-        
-        # Show feedback
-        feedback = "👍 Thanks for your feedback!" if query.data == 'like' else "👎 Thanks for your feedback!"
-        await query.message.reply_text(feedback)
-        
-        # Move to next article
-        session['current_index'] += 1
-        return await show_article(update, context)
+    # Small delay before next article
+    await asyncio.sleep(1)
     
-    elif query.data == 'read_more':
-        return await show_article(update, context, show_full=True)
-    
-    elif query.data == 'next':
-        session['current_index'] += 1
-        return await show_article(update, context)
+    # Send next article
+    return await send_article_for_labeling(update, context)
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Cancel the conversation"""
-    await update.message.reply_text("Goodbye! Use /start to begin again.")
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show user's labeling statistics"""
+    user = update.effective_user
+    user_id = user.id
+    
+    stats = get_user_labeling_stats(user_id)
+    if not stats or stats[0] == 0:
+        await update.message.reply_text(
+            "📊 **Your Labeling Stats**\n\n"
+            "You haven't labeled any articles yet!\n"
+            "Use /start to begin labeling articles.",
+            parse_mode='Markdown'
+        )
+        return
+    
+    total, positive, negative, neutral = stats
+    
+    # Calculate percentages
+    pos_pct = (positive / total * 100) if total > 0 else 0
+    neg_pct = (negative / total * 100) if total > 0 else 0
+    neu_pct = (neutral / total * 100) if total > 0 else 0
+    
+    stats_msg = f"📊 **Your Labeling Stats**\n\n"
+    stats_msg += f"🏆 **Total articles labeled:** {total}\n\n"
+    stats_msg += f"📈 **Positive:** {positive} ({pos_pct:.1f}%)\n"
+    stats_msg += f"📉 **Negative:** {negative} ({neg_pct:.1f}%)\n"
+    stats_msg += f"😐 **Neutral:** {neutral} ({neu_pct:.1f}%)\n\n"
+    stats_msg += "Keep up the great work! 🙌"
+    
+    await update.message.reply_text(stats_msg, parse_mode='Markdown')
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancel conversation"""
+    await update.message.reply_text("Labeling session cancelled.")
     return ConversationHandler.END
 
 def create_bot_application():
     """Create and configure the bot application"""
     if not TOKEN:
-        logger.error("TELEGRAM_BOT_TOKEN not found!")
+        logger.error("TELEGRAM_BOT_TOKEN not found")
         return None
     
-    # Create application
-    application = Application.builder().token(TOKEN).build()
-    
-    # Add conversation handler
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],
-        states={
-            CHOOSING_CATEGORY: [
-                CallbackQueryHandler(handle_category_choice)
-            ],
-            READING_NEWS: [
-                CallbackQueryHandler(handle_article_response)
-            ],
-        },
-        fallbacks=[CommandHandler('cancel', cancel)],
-    )
-    
-    application.add_handler(conv_handler)
-    
-    return application
+    try:
+        application = Application.builder().token(TOKEN).build()
+        
+        # Create conversation handler
+        conv_handler = ConversationHandler(
+            entry_points=[CommandHandler('start', start)],
+            states={
+                WAITING_FOR_LABEL: [CallbackQueryHandler(handle_label)]
+            },
+            fallbacks=[CommandHandler('cancel', cancel)]
+        )
+        
+        application.add_handler(conv_handler)
+        
+        # Add stats command handler
+        application.add_handler(CommandHandler('stats', stats_command))
+        
+        logger.info("Bot application created successfully")
+        return application
+        
+    except Exception as e:
+        logger.error(f"Error creating bot application: {str(e)}")
+        return None
 
-def run_bot():
-    """Run the bot in polling mode"""
-    print("🔧 run_bot() function called", flush=True)
+def run_bot_sync():
+    """Run the bot synchronously in a new event loop"""
+    print("🔧 run_bot_sync() function called", flush=True)
     
     try:
+        # Create new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        print("🔧 Created new event loop for bot thread", flush=True)
+        
         print("🔧 Creating bot application...", flush=True)
         application = create_bot_application()
         
@@ -285,44 +354,57 @@ def run_bot():
         else:
             logger.error("Failed to create bot application")
             print("❌ Failed to create bot application", flush=True)
+            
     except Exception as e:
-        print(f"❌ Error in run_bot(): {str(e)}", flush=True)
-        logger.error(f"Error in run_bot(): {str(e)}")
-        import traceback
-        print(f"Traceback: {traceback.format_exc()}", flush=True)
+        error_msg = f"Error in run_bot_sync(): {str(e)}"
+        logger.error(error_msg)
+        print(f"❌ {error_msg}", flush=True)
+    finally:
+        # Clean up the event loop
+        try:
+            if loop and not loop.is_closed():
+                loop.close()
+                print("🔧 Event loop closed", flush=True)
+        except Exception as e:
+            print(f"Error closing loop: {e}", flush=True)
 
 def main():
     """Main function"""
     print("=== STARTING TELEGRAM BOT SERVICE ===", flush=True)
     print(f"Python version: {sys.version}", flush=True)
     print(f"Current working directory: {os.getcwd()}", flush=True)
-    print(f"Environment variables: PORT={os.environ.get('PORT')}, TELEGRAM_BOT_TOKEN present: {bool(TOKEN)}", flush=True)
+    print(f"Environment variables:", flush=True)
+    print(f"  - PORT: {os.environ.get('PORT', 'Not set')}", flush=True)
+    print(f"  - TELEGRAM_BOT_TOKEN present: {bool(TOKEN)}", flush=True)
+    print(f"  - DATABASE_URL present: {bool(DATABASE_URL)}", flush=True)
+    
+    if not TOKEN:
+        print("❌ TELEGRAM_BOT_TOKEN not found!", flush=True)
+        logger.error("TELEGRAM_BOT_TOKEN not found")
+        return
+    
+    if not DATABASE_URL:
+        print("❌ DATABASE_URL not found!", flush=True)
+        logger.error("DATABASE_URL not found")
+        return
     
     logger.info("Starting Telegram bot service")
     
-    if not TOKEN:
-        print("CRITICAL ERROR: No TELEGRAM_BOT_TOKEN found!", flush=True)
-        logger.error("No TELEGRAM_BOT_TOKEN found!")
-        return
-    
-    print("Bot token is present, starting bot thread...", flush=True)
-    
     # Start bot in a separate thread
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    print("🚀 Starting bot thread...", flush=True)
+    bot_thread = threading.Thread(target=run_bot_sync, daemon=True)
     bot_thread.start()
-    
-    print("Bot thread started, starting Flask server...", flush=True)
+    print("✅ Bot thread started", flush=True)
     
     # Start Flask server
     port = int(os.environ.get('PORT', 8080))
-    print(f"Starting Flask server on port {port}", flush=True)
+    print(f"🌐 Starting Flask server on port {port}", flush=True)
     logger.info(f"Starting Flask server on port {port}")
     
     try:
-        print("About to start Flask app.run()...", flush=True)
         app.run(host='0.0.0.0', port=port, debug=False)
     except Exception as e:
-        print(f"ERROR starting Flask server: {str(e)}", flush=True)
+        print(f"❌ ERROR starting Flask server: {str(e)}", flush=True)
         logger.error(f"Error starting Flask server: {str(e)}")
 
 if __name__ == "__main__":
