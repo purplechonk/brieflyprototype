@@ -1,2 +1,7 @@
 flask==2.3.3
-werkzeug==2.3.7 
+werkzeug==2.3.7
+eventregistry==9.1
+psycopg2-binary==2.9.1
+python-dotenv==0.19.0
+requests==2.26.0
+pandas==1.3.3 
