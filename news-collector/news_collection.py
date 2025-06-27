@@ -456,6 +456,3 @@ if __name__ == "__main__":
         print(f"ERROR starting Flask server: {str(e)}", flush=True)
         logger.error(f"Error starting Flask server: {str(e)}")
         sys.exit(1)
-
-
-#try again
