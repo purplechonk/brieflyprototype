@@ -1,4 +1,4 @@
-# news_collection.py
+# news_collection.py - Enhanced with debugging v2
 # Retrieving News Using News API for multiple topics
 # Use pip install eventregistry
 
@@ -61,7 +61,7 @@ app = Flask(__name__)
 def health_check():
     logger.info("Health check endpoint called")
     print("Health check called", flush=True)
-    return 'News collector service is running'
+    return 'News collector service is running - Debug version'
 
 @app.route('/test', methods=['GET'])
 def test_endpoint():
