@@ -79,8 +79,7 @@ def fetch_geopolitics(date_start, date_end):
         "lang": "eng",
         "sourceUri": {"$or": ["channelnewsasia.com", "straitstimes.com"]},
         "dateStart": date_start,
-        "dateEnd": date_end,
-        "keyword": None  # Explicitly set keyword to None
+        "dateEnd": date_end
     }
     return _fetch_topic(base_query, "Geopolitics", "International")
 
@@ -94,7 +93,6 @@ def fetch_singapore_news(date_start, date_end):
             "dmoz/Business",
             "dmoz/Society"
         ]},
-        "keyword": None,  # Explicitly set keyword to None
         "lang": "eng",
         "sourceUri": {"$or": ["channelnewsasia.com", "straitstimes.com"]},
         "dateStart": date_start,
@@ -172,32 +170,46 @@ def _fetch_topic(base_query, category, topic_name):
         sys.stdout.flush()  # Force flush print statements
         
         # Build and execute query
-        q = QueryArticles(
-            _build_query(base_query)
+        complex_query = _build_query(base_query)
+        q = QueryArticlesIter.initWithComplexQuery(complex_query)
+        
+        return_info = ReturnInfo(
+            articleInfo=ArticleInfoFlags(
+                bodyLen=-1,
+                basicInfo=True,
+                title=True,
+                body=True,
+                url=True,
+                eventUri=True,
+                authors=True,
+                concepts=True,
+                categories=True,
+                links=True,
+                videos=True,
+                image=True,
+                socialScore=True,
+                sentiment=True,
+                location=True,
+                dates=True,
+                extractedDates=True,
+                originalArticle=True,
+                storyUri=True
+            )
         )
         
-        articles = q.execute(
-            maxItems=100,
+        results = []
+        for article in q.execQuery(
+            er,
             sortBy="date",
-            sortByAsc=False
-        )
-        
-        print(f"Query executed for {category}/{topic_name}")
-        sys.stdout.flush()  # Force flush print statements
-        
-        if not articles:
-            print(f"No articles object returned for {category}/{topic_name}")
-            return []
+            sortByAsc=False,
+            returnInfo=return_info,
+            maxItems=100
+        ):
+            data = article.copy()
+            data["category"] = category
+            data["sub-category"] = topic_name
+            results.append(data)
             
-        if "articles" not in articles:
-            print(f"No 'articles' key in response for {category}/{topic_name}")
-            return []
-            
-        if "results" not in articles["articles"]:
-            print(f"No 'results' key in articles for {category}/{topic_name}")
-            return []
-            
-        results = articles["articles"]["results"]
         print(f"Found {len(results)} articles for {category}/{topic_name}")
         
         # Process and save articles
