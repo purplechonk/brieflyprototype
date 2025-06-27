@@ -315,32 +315,63 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 def create_bot_application():
     """Create and configure the bot application"""
+    print("🔧 create_bot_application() called", flush=True)
+    
     if not TOKEN:
-        logger.error("TELEGRAM_BOT_TOKEN not found")
+        error_msg = "TELEGRAM_BOT_TOKEN not found"
+        logger.error(error_msg)
+        print(f"❌ {error_msg}", flush=True)
         return None
     
+    print(f"🔧 Token present: {TOKEN[:10]}...", flush=True)
+    
     try:
+        print("🔧 Testing token validity...", flush=True)
+        # Test token by creating a simple bot instance
+        from telegram import Bot
+        test_bot = Bot(token=TOKEN)
+        print("✅ Token appears valid", flush=True)
+        
+        print("🔧 Building application...", flush=True)
         application = Application.builder().token(TOKEN).build()
+        print("✅ Application built successfully", flush=True)
         
-        # Create conversation handler
-        conv_handler = ConversationHandler(
-            entry_points=[CommandHandler('start', start)],
-            states={
-                WAITING_FOR_LABEL: [CallbackQueryHandler(handle_label)]
-            },
-            fallbacks=[CommandHandler('cancel', cancel)]
-        )
-        
-        application.add_handler(conv_handler)
-        
-        # Add stats command handler
+        print("🔧 Adding simple command handlers first...", flush=True)
+        # Add stats command handler first (simpler)
         application.add_handler(CommandHandler('stats', stats_command))
+        print("✅ Stats handler added", flush=True)
+        
+        print("🔧 Creating conversation handler...", flush=True)
+        # Create conversation handler
+        try:
+            conv_handler = ConversationHandler(
+                entry_points=[CommandHandler('start', start)],
+                states={
+                    WAITING_FOR_LABEL: [CallbackQueryHandler(handle_label)]
+                },
+                fallbacks=[CommandHandler('cancel', cancel)]
+            )
+            print("✅ Conversation handler created", flush=True)
+            
+            print("🔧 Adding conversation handler to application...", flush=True)
+            application.add_handler(conv_handler)
+            print("✅ Conversation handler added", flush=True)
+        except Exception as conv_error:
+            print(f"❌ Error creating conversation handler: {conv_error}", flush=True)
+            # Still add a basic start command
+            application.add_handler(CommandHandler('start', start))
+            print("✅ Basic start handler added instead", flush=True)
         
         logger.info("Bot application created successfully")
+        print("✅ Bot application created successfully", flush=True)
         return application
         
     except Exception as e:
-        logger.error(f"Error creating bot application: {str(e)}")
+        error_msg = f"Error creating bot application: {str(e)}"
+        logger.error(error_msg)
+        print(f"❌ {error_msg}", flush=True)
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}", flush=True)
         return None
 
 def run_bot_sync():
