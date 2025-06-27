@@ -33,6 +33,10 @@ def health_check():
 def health():
     return {"status": "healthy", "service": "telegram-bot"}
 
+@app.route('/test')
+def test():
+    return "Test route is working!"
+
 @app.route('/webhook', methods=['POST', 'GET'])
 def webhook():
     """Handle incoming webhook updates from Telegram"""
@@ -552,6 +556,11 @@ def main():
         return
     
     logger.info("Starting Telegram bot service")
+    
+    # Debug Flask routes
+    print("🔍 Flask routes registered:", flush=True)
+    for rule in app.url_map.iter_rules():
+        print(f"  - {rule.rule} -> {rule.endpoint} [{', '.join(rule.methods)}]", flush=True)
     
     # Setup bot in main thread (has event loop)
     print("🚀 Setting up bot in main thread...", flush=True)
