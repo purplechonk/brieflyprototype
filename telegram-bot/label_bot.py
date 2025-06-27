@@ -1,4 +1,5 @@
 import os
+import sys
 import psycopg2
 from datetime import datetime
 from dotenv import load_dotenv
@@ -270,23 +271,47 @@ def create_bot_application():
 
 def run_bot():
     """Run the bot in polling mode"""
-    application = create_bot_application()
-    if application:
-        logger.info("Starting Telegram bot...")
-        print("🤖 Starting Telegram bot...", flush=True)
-        application.run_polling(drop_pending_updates=True)
-    else:
-        logger.error("Failed to create bot application")
-        print("❌ Failed to create bot application", flush=True)
+    print("🔧 run_bot() function called", flush=True)
+    
+    try:
+        print("🔧 Creating bot application...", flush=True)
+        application = create_bot_application()
+        
+        if application:
+            logger.info("Starting Telegram bot...")
+            print("🤖 Starting Telegram bot polling...", flush=True)
+            application.run_polling(drop_pending_updates=True)
+            print("🤖 Bot polling ended", flush=True)
+        else:
+            logger.error("Failed to create bot application")
+            print("❌ Failed to create bot application", flush=True)
+    except Exception as e:
+        print(f"❌ Error in run_bot(): {str(e)}", flush=True)
+        logger.error(f"Error in run_bot(): {str(e)}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}", flush=True)
 
 def main():
     """Main function"""
     print("=== STARTING TELEGRAM BOT SERVICE ===", flush=True)
+    print(f"Python version: {sys.version}", flush=True)
+    print(f"Current working directory: {os.getcwd()}", flush=True)
+    print(f"Environment variables: PORT={os.environ.get('PORT')}, TELEGRAM_BOT_TOKEN present: {bool(TOKEN)}", flush=True)
+    
     logger.info("Starting Telegram bot service")
+    
+    if not TOKEN:
+        print("CRITICAL ERROR: No TELEGRAM_BOT_TOKEN found!", flush=True)
+        logger.error("No TELEGRAM_BOT_TOKEN found!")
+        return
+    
+    print("Bot token is present, starting bot thread...", flush=True)
     
     # Start bot in a separate thread
     bot_thread = threading.Thread(target=run_bot, daemon=True)
     bot_thread.start()
+    
+    print("Bot thread started, starting Flask server...", flush=True)
     
     # Start Flask server
     port = int(os.environ.get('PORT', 8080))
@@ -294,6 +319,7 @@ def main():
     logger.info(f"Starting Flask server on port {port}")
     
     try:
+        print("About to start Flask app.run()...", flush=True)
         app.run(host='0.0.0.0', port=port, debug=False)
     except Exception as e:
         print(f"ERROR starting Flask server: {str(e)}", flush=True)
