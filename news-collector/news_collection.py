@@ -407,9 +407,9 @@ def main():
     end_date = datetime.now()
     start_date = end_date - timedelta(hours=24)
     
-    # Format dates for EventRegistry with time precision
-    date_end = end_date.strftime("%Y-%m-%d %H:%M:%S")
-    date_start = start_date.strftime("%Y-%m-%d %H:%M:%S")
+    # Format dates for EventRegistry - use YYYY-MM-DD format only
+    date_end = end_date.strftime("%Y-%m-%d")
+    date_start = start_date.strftime("%Y-%m-%d")
     
     print(f"Fetching articles from {date_start} to {date_end}", flush=True)
     logger.info(f"Fetching articles from {date_start} to {date_end}")
