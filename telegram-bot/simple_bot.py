@@ -79,11 +79,23 @@ def get_unlabeled_articles_for_user(user_id, category=None, limit=10):
         params.append(limit)
         print(f"🔍 Executing query: {query}", flush=True)
         print(f"🔍 Query params: {params}", flush=True)
-        cursor.execute(query, params)
-        articles = cursor.fetchall()
-        print(f"🔍 Found {len(articles)} articles from today", flush=True)
-        if articles:
-            print(f"🔍 First article sample: {articles[0] if articles else 'None'}", flush=True)
+        
+        try:
+            cursor.execute(query, params)
+            articles = cursor.fetchall()
+            print(f"🔍 Query executed successfully", flush=True)
+            print(f"🔍 Found {len(articles)} articles from today", flush=True)
+            print(f"🔍 Articles type: {type(articles)}", flush=True)
+            
+            if articles:
+                print(f"🔍 First article type: {type(articles[0])}", flush=True)
+                print(f"🔍 First article length: {len(articles[0]) if articles[0] else 'None'}", flush=True)
+                print(f"🔍 First article sample: {articles[0]}", flush=True)
+        except Exception as query_error:
+            print(f"❌ Query execution error: {query_error}", flush=True)
+            import traceback
+            print(f"📋 Query traceback: {traceback.format_exc()}", flush=True)
+            raise
         
         # If no articles from today, get recent unlabeled articles
         if not articles:
@@ -245,7 +257,9 @@ async def handle_category_selection(update: Update, context: ContextTypes.DEFAUL
     print(f"🔖 User {user_id} selected category: {category}", flush=True)
     
     # Get articles for selected category
+    print(f"🔍 Calling get_unlabeled_articles_for_user with category: {category}", flush=True)
     articles = get_unlabeled_articles_for_user(user_id, category)
+    print(f"🔍 get_unlabeled_articles_for_user returned: {type(articles)}, length: {len(articles) if articles else 'None'}", flush=True)
     
     if not articles:
         await query.edit_message_text(
@@ -254,10 +268,14 @@ async def handle_category_selection(update: Update, context: ContextTypes.DEFAUL
         )
         return ConversationHandler.END
     
+    print(f"🔍 First article from get_unlabeled_articles_for_user: {articles[0] if articles else 'None'}", flush=True)
+    
     # Store articles and category in context
     context.user_data['articles'] = articles
     context.user_data['current_index'] = 0
     context.user_data['selected_category'] = category
+    
+    print(f"🔍 Articles stored in context, calling send_article_for_labeling", flush=True)
     
     # Update message to show selected category
     await query.edit_message_text(
@@ -273,15 +291,40 @@ async def handle_category_selection(update: Update, context: ContextTypes.DEFAUL
 
 async def send_article_for_labeling(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Send article for user to label"""
-    articles = context.user_data.get('articles', [])
-    current_index = context.user_data.get('current_index', 0)
-    
-    if current_index >= len(articles):
-        await update.message.reply_text("All articles have been processed! Thank you.")
+    try:
+        articles = context.user_data.get('articles', [])
+        current_index = context.user_data.get('current_index', 0)
+        
+        print(f"🔍 send_article_for_labeling called", flush=True)
+        print(f"🔍 Articles count: {len(articles)}", flush=True)
+        print(f"🔍 Current index: {current_index}", flush=True)
+        
+        if current_index >= len(articles):
+            await update.message.reply_text("All articles have been processed! Thank you.")
+            return ConversationHandler.END
+        
+        article = articles[current_index]
+        print(f"🔍 Article type: {type(article)}", flush=True)
+        print(f"🔍 Article length: {len(article) if article else 'None'}", flush=True)
+        print(f"🔍 Article content: {article}", flush=True)
+        
+        article_uri, title, body, url, category, published_date = article
+        print(f"🔍 Article unpacked successfully", flush=True)
+    except Exception as unpack_error:
+        print(f"❌ Error in send_article_for_labeling: {unpack_error}", flush=True)
+        import traceback
+        print(f"📋 Unpack traceback: {traceback.format_exc()}", flush=True)
+        
+        # Try to send error message to user
+        try:
+            if update.message:
+                await update.message.reply_text("❌ Error loading article. Please try again with /start")
+            elif update.callback_query:
+                await update.callback_query.message.reply_text("❌ Error loading article. Please try again with /start")
+        except:
+            pass
+        
         return ConversationHandler.END
-    
-    article = articles[current_index]
-    article_uri, title, body, url, category, published_date = article
     
     # Store current article URI
     context.user_data['current_article_uri'] = article_uri
