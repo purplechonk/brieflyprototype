@@ -516,13 +516,6 @@ def setup_bot_sync():
     application.add_error_handler(error_handler)
     print("✅ Handlers added", flush=True)
     
-    # Initialize the application synchronously
-    async def init_app():
-        await application.initialize()
-        print("✅ Application initialized", flush=True)
-    
-    asyncio.run(init_app())
-    
     return application
 
 def main():
@@ -547,9 +540,14 @@ def main():
         # Setup bot synchronously for webhook mode
         setup_bot_sync()
         
-        # Setup webhook if URL is provided
-        if WEBHOOK_URL:
-            async def setup_webhook_async():
+        # Initialize application and setup webhook in a single async call
+        async def setup_bot_and_webhook():
+            # Initialize the application
+            await application.initialize()
+            print("✅ Application initialized", flush=True)
+            
+            # Setup webhook if URL is provided
+            if WEBHOOK_URL:
                 # First, delete any existing webhook to avoid conflicts
                 print("🧹 Clearing any existing webhooks...", flush=True)
                 await application.bot.delete_webhook(drop_pending_updates=True)
@@ -566,11 +564,11 @@ def main():
                     print(f"📡 Webhook info: {webhook_info.url}", flush=True)
                 else:
                     print("❌ Failed to set webhook", flush=True)
-            
-            # Set up webhook
-            asyncio.run(setup_webhook_async())
-        else:
-            print("⚠️ No WEBHOOK_URL set, webhook not configured", flush=True)
+            else:
+                print("⚠️ No WEBHOOK_URL set, webhook not configured", flush=True)
+        
+        # Run both initialization and webhook setup in single event loop
+        asyncio.run(setup_bot_and_webhook())
         
         print(f"🚀 Starting Flask server on port {PORT}...", flush=True)
         logger.info(f"Starting Flask server on port {PORT}")
