@@ -27,7 +27,8 @@ print(f"Bot token present: {bool(TOKEN)}", flush=True)
 print(f"Database URL present: {bool(DATABASE_URL)}", flush=True)
 
 # Bot conversation states
-WAITING_FOR_LABEL = 1
+WAITING_FOR_CATEGORY = 1
+WAITING_FOR_LABEL = 2
 
 # Global application instance
 application = None
@@ -108,9 +109,9 @@ def get_db_connection():
         logger.error(f"Database connection failed: {str(e)}")
         return None
 
-def get_unlabeled_articles_for_user(user_id, limit=10):
+def get_unlabeled_articles_for_user(user_id, category=None, limit=10):
     """Get articles that haven't been labeled by this specific user yet"""
-    print(f"🔍 Getting unlabeled articles for user {user_id}", flush=True)
+    print(f"🔍 Getting unlabeled articles for user {user_id}, category: {category}", flush=True)
     conn = get_db_connection()
     if not conn:
         print("❌ No database connection", flush=True)
@@ -118,39 +119,56 @@ def get_unlabeled_articles_for_user(user_id, limit=10):
     
     try:
         cursor = conn.cursor()
-        print(f"🔍 Querying for today's articles...", flush=True)
+        
+        # Build category filter
+        category_filter = ""
+        params = [user_id]
+        
+        if category:
+            if category.lower() == 'geopolitics':
+                category_filter = "AND LOWER(a.category) LIKE '%geopolitic%'"
+            elif category.lower() == 'singapore':
+                category_filter = "AND LOWER(a.category) LIKE '%singapore%'"
+        
         # Get articles from today that this user hasn't labeled yet
-        cursor.execute("""
+        print(f"🔍 Querying for today's articles with category filter...", flush=True)
+        query = f"""
             SELECT a.uri, a.title, a.body, a.url, a.category, a.published_date
             FROM articles a
             LEFT JOIN user_interactions ui ON a.uri = ui.uri AND ui.user_id = %s 
                 AND ui.interaction_type IN ('positive', 'negative', 'neutral')
             WHERE ui.id IS NULL
             AND a.published_date >= CURRENT_DATE
+            {category_filter}
             ORDER BY a.published_date DESC 
             LIMIT %s
-        """, (user_id, limit))
+        """
+        params.append(limit)
+        cursor.execute(query, params)
         articles = cursor.fetchall()
         print(f"🔍 Found {len(articles)} articles from today", flush=True)
         
         # If no articles from today, get recent unlabeled articles
         if not articles:
             print(f"🔍 No today's articles, getting recent ones...", flush=True)
-            cursor.execute("""
+            query = f"""
                 SELECT a.uri, a.title, a.body, a.url, a.category, a.published_date
                 FROM articles a
                 LEFT JOIN user_interactions ui ON a.uri = ui.uri AND ui.user_id = %s 
                     AND ui.interaction_type IN ('positive', 'negative', 'neutral')
                 WHERE ui.id IS NULL
+                {category_filter}
                 ORDER BY a.published_date DESC 
                 LIMIT %s
-            """, (user_id, limit))
+            """
+            params = [user_id, limit]
+            cursor.execute(query, params)
             articles = cursor.fetchall()
             print(f"🔍 Found {len(articles)} recent articles", flush=True)
         
         cursor.close()
         conn.close()
-        logger.info(f"Found {len(articles)} unlabeled articles for user {user_id}")
+        logger.info(f"Found {len(articles)} unlabeled articles for user {user_id}, category: {category}")
         return articles
     except Exception as e:
         error_msg = f"Error fetching articles for user {user_id}: {str(e)}"
@@ -224,26 +242,67 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         if total > 0:
             stats_text = f"\n📊 Your stats: {total} articles labeled ({positive} positive, {negative} negative, {neutral} neutral)"
     
-    # Get articles this user hasn't labeled yet
-    articles = get_unlabeled_articles_for_user(user_id)
+    # Store user info in context
+    context.user_data['user_id'] = user_id
+    
+    # Send welcome message with category selection
+    welcome_msg = f"Welcome to Briefly News Labeling Bot! 📰{stats_text}\n\n"
+    welcome_msg += "Please choose a news category:"
+    
+    # Create category selection keyboard
+    keyboard = [
+        [InlineKeyboardButton("🌍 Geopolitics News", callback_data="category_geopolitics")],
+        [InlineKeyboardButton("🇸🇬 Singapore News", callback_data="category_singapore")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(welcome_msg, reply_markup=reply_markup)
+    
+    return WAITING_FOR_CATEGORY
+
+async def handle_category_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle user's category selection"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = context.user_data.get('user_id')
+    
+    # Extract category from callback data
+    if query.data == "category_geopolitics":
+        category = "geopolitics"
+        category_display = "🌍 Geopolitics News"
+    elif query.data == "category_singapore":
+        category = "singapore" 
+        category_display = "🇸🇬 Singapore News"
+    else:
+        await query.edit_message_text("❌ Invalid category selection")
+        return ConversationHandler.END
+    
+    print(f"🔖 User {user_id} selected category: {category}", flush=True)
+    
+    # Get articles for selected category
+    articles = get_unlabeled_articles_for_user(user_id, category)
     
     if not articles:
-        await update.message.reply_text(
-            f"🎉 Great job! You've labeled all available articles!{stats_text}\n\n"
-            "New articles will be available after the next news collection (runs at midnight)."
+        await query.edit_message_text(
+            f"🎉 Great job! You've labeled all available {category_display} articles!\n\n"
+            "Try selecting another category or check back later for new articles."
         )
         return ConversationHandler.END
     
-    # Store user info and articles in context
-    context.user_data['user_id'] = user_id
+    # Store articles and category in context
     context.user_data['articles'] = articles
     context.user_data['current_index'] = 0
+    context.user_data['selected_category'] = category
     
-    # Send welcome message with stats
-    welcome_msg = f"Welcome to Briefly News Labeling Bot! 📰{stats_text}\n\n"
-    welcome_msg += f"You have {len(articles)} articles to label. Let's start!"
+    # Update message to show selected category
+    await query.edit_message_text(
+        f"✅ Selected: {category_display}\n\n"
+        f"Found {len(articles)} articles to label. Let's start!"
+    )
     
-    await update.message.reply_text(welcome_msg)
+    # Small delay before first article
+    await asyncio.sleep(1)
     
     # Send first article
     return await send_article_for_labeling(update, context)
@@ -387,6 +446,7 @@ async def setup_bot():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={
+            WAITING_FOR_CATEGORY: [CallbackQueryHandler(handle_category_selection)],
             WAITING_FOR_LABEL: [CallbackQueryHandler(handle_label)]
         },
         fallbacks=[CommandHandler('cancel', cancel)]
