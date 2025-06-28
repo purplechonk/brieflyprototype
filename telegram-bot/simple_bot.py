@@ -42,7 +42,7 @@ def get_db_connection():
         logger.error(f"Database connection failed: {str(e)}")
         return None
 
-def get_unlabeled_articles_for_user(user_id, category=None, limit=10):
+def get_unlabeled_articles_for_user(user_id, category=None, limit=None):
     """Get articles that haven't been labeled by this specific user yet"""
     print(f"🔍 Getting unlabeled articles for user {user_id}, category: {category}", flush=True)
     conn = get_db_connection()
@@ -67,6 +67,7 @@ def get_unlabeled_articles_for_user(user_id, category=None, limit=10):
         
         # Get articles from today that this user hasn't labeled yet
         print(f"🔍 Querying for today's articles with category filter...", flush=True)
+        limit_clause = f"LIMIT %s" if limit else ""
         query = f"""
             SELECT a.uri, a.title, a.body, a.url, a.category, a.published_date
             FROM articles a
@@ -76,9 +77,10 @@ def get_unlabeled_articles_for_user(user_id, category=None, limit=10):
             AND a.published_date >= CURRENT_DATE
             {category_filter}
             ORDER BY a.published_date DESC 
-            LIMIT %s
+            {limit_clause}
         """
-        params.append(limit)
+        if limit:
+            params.append(limit)
         print(f"🔍 Executing query: {query}", flush=True)
         print(f"🔍 Query params: {params}", flush=True)
         
@@ -102,6 +104,7 @@ def get_unlabeled_articles_for_user(user_id, category=None, limit=10):
         # If no articles from today, get recent unlabeled articles
         if not articles:
             print(f"🔍 No today's articles, getting recent ones...", flush=True)
+            fallback_limit_clause = f"LIMIT %s" if limit else ""
             query = f"""
                 SELECT a.uri, a.title, a.body, a.url, a.category, a.published_date
                 FROM articles a
@@ -110,7 +113,7 @@ def get_unlabeled_articles_for_user(user_id, category=None, limit=10):
                 WHERE ui.id IS NULL
                 {category_filter}
                 ORDER BY a.published_date DESC 
-                LIMIT %s
+                {fallback_limit_clause}
             """
             # Rebuild params for fallback query
             fallback_params = [user_id]
@@ -119,7 +122,8 @@ def get_unlabeled_articles_for_user(user_id, category=None, limit=10):
                     fallback_params.append('%geopolitics%')
                 elif category.lower() == 'singapore':
                     fallback_params.append('%singapore%')
-            fallback_params.append(limit)
+            if limit:
+                fallback_params.append(limit)
             
             print(f"🔍 Executing fallback query: {query}", flush=True)
             print(f"🔍 Fallback params: {fallback_params}", flush=True)
@@ -290,7 +294,8 @@ async def handle_category_selection(update: Update, context: ContextTypes.DEFAUL
     # Update message to show selected category
     await query.edit_message_text(
         f"✅ Selected: {category_display}\n\n"
-        f"Found {len(articles)} articles to label. Let's start!"
+        f"🗞️ Ready to explore the latest news? Let's dive into today's stories!\n"
+        f"📖 Share your thoughts on each article as we go. Happy browsing! 🚀"
     )
     
     # Small delay before first article
