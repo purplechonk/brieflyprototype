@@ -77,9 +77,13 @@ def get_unlabeled_articles_for_user(user_id, category=None, limit=10):
             LIMIT %s
         """
         params.append(limit)
+        print(f"🔍 Executing query: {query}", flush=True)
+        print(f"🔍 Query params: {params}", flush=True)
         cursor.execute(query, params)
         articles = cursor.fetchall()
         print(f"🔍 Found {len(articles)} articles from today", flush=True)
+        if articles:
+            print(f"🔍 First article sample: {articles[0] if articles else 'None'}", flush=True)
         
         # If no articles from today, get recent unlabeled articles
         if not articles:
@@ -95,9 +99,13 @@ def get_unlabeled_articles_for_user(user_id, category=None, limit=10):
                 LIMIT %s
             """
             params = [user_id, limit]
+            print(f"🔍 Executing fallback query: {query}", flush=True)
+            print(f"🔍 Fallback params: {params}", flush=True)
             cursor.execute(query, params)
             articles = cursor.fetchall()
             print(f"🔍 Found {len(articles)} recent articles", flush=True)
+            if articles:
+                print(f"🔍 First recent article sample: {articles[0] if articles else 'None'}", flush=True)
         
         cursor.close()
         conn.close()
@@ -388,6 +396,116 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Labeling session cancelled.")
     return ConversationHandler.END
 
+async def debug_database_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Debug command to inspect database structure and data"""
+    user = update.effective_user
+    user_id = user.id
+    
+    # Only allow specific users to run debug (you can modify this)
+    if user_id != 2045755665:  # Your user ID
+        await update.message.reply_text("❌ Debug command not available for this user.")
+        return
+    
+    await update.message.reply_text("🔍 Inspecting database... Please wait.")
+    
+    try:
+        conn = get_db_connection()
+        if not conn:
+            await update.message.reply_text("❌ Could not connect to database.")
+            return
+        
+        cursor = conn.cursor()
+        
+        # 1. Show unique categories
+        cursor.execute("SELECT DISTINCT category, COUNT(*) FROM articles GROUP BY category ORDER BY COUNT(*) DESC;")
+        categories = cursor.fetchall()
+        
+        categories_text = "📊 **CATEGORIES IN DATABASE:**\n\n"
+        for cat, count in categories[:10]:  # Show top 10
+            categories_text += f"• `{cat}`: {count} articles\n"
+        
+        await update.message.reply_text(categories_text, parse_mode='Markdown')
+        
+        # 2. Show sample articles for each filter we're using
+        filters_to_test = [
+            ("geopolitics", "LOWER(category) LIKE '%geopolitic%'"),
+            ("singapore", "LOWER(category) LIKE '%singapore%'")
+        ]
+        
+        for filter_name, filter_condition in filters_to_test:
+            cursor.execute(f"""
+                SELECT category, title, published_date 
+                FROM articles 
+                WHERE {filter_condition}
+                ORDER BY published_date DESC 
+                LIMIT 3;
+            """)
+            
+            results = cursor.fetchall()
+            
+            if results:
+                filter_text = f"🔍 **{filter_name.upper()} FILTER RESULTS:**\n\n"
+                for cat, title, pub_date in results:
+                    filter_text += f"• Category: `{cat}`\n"
+                    filter_text += f"  Title: {title[:50]}...\n"
+                    filter_text += f"  Date: {pub_date}\n\n"
+            else:
+                filter_text = f"❌ **{filter_name.upper()} FILTER:** No results found\n\n"
+            
+            await update.message.reply_text(filter_text, parse_mode='Markdown')
+        
+        # 3. Check today's articles
+        cursor.execute("""
+            SELECT COUNT(*), category 
+            FROM articles 
+            WHERE published_date >= CURRENT_DATE 
+            GROUP BY category 
+            ORDER BY COUNT(*) DESC 
+            LIMIT 5;
+        """)
+        today_articles = cursor.fetchall()
+        
+        if today_articles:
+            today_text = "📅 **TODAY'S ARTICLES:**\n\n"
+            for count, category in today_articles:
+                today_text += f"• `{category}`: {count} articles\n"
+        else:
+            today_text = "📅 **TODAY'S ARTICLES:** None found"
+        
+        await update.message.reply_text(today_text, parse_mode='Markdown')
+        
+        # 4. Check recent articles (last 7 days)
+        cursor.execute("""
+            SELECT COUNT(*), category 
+            FROM articles 
+            WHERE published_date >= CURRENT_DATE - INTERVAL '7 days'
+            GROUP BY category 
+            ORDER BY COUNT(*) DESC 
+            LIMIT 5;
+        """)
+        recent_articles = cursor.fetchall()
+        
+        if recent_articles:
+            recent_text = "📈 **LAST 7 DAYS:**\n\n"
+            for count, category in recent_articles:
+                recent_text += f"• `{category}`: {count} articles\n"
+        else:
+            recent_text = "📈 **LAST 7 DAYS:** None found"
+        
+        await update.message.reply_text(recent_text, parse_mode='Markdown')
+        
+        cursor.close()
+        conn.close()
+        
+        await update.message.reply_text("✅ Database inspection complete!")
+        
+    except Exception as e:
+        error_msg = f"❌ Debug error: {str(e)}"
+        await update.message.reply_text(error_msg)
+        print(f"Debug command error: {e}", flush=True)
+        import traceback
+        print(f"Debug traceback: {traceback.format_exc()}", flush=True)
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log the error and send a message to notify the developer."""
     print(f"❌ Exception while handling an update: {context.error}", flush=True)
@@ -438,6 +556,7 @@ def main():
         # Add handlers
         application.add_handler(conv_handler)
         application.add_handler(CommandHandler('stats', stats_command))
+        application.add_handler(CommandHandler('debug', debug_database_command))
         application.add_error_handler(error_handler)
         print("✅ Handlers added", flush=True)
         
