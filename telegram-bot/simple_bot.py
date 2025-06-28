@@ -43,12 +43,28 @@ def health_check():
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """Handle incoming webhook updates"""
-    if request.method == "POST":
-        update = Update.de_json(request.get_json(force=True), application.bot)
-        # Handle the update asynchronously
-        asyncio.create_task(application.process_update(update))
-        return "OK"
-    return "Method not allowed", 405
+    try:
+        if request.method == "POST":
+            update_data = request.get_json(force=True)
+            if update_data:
+                update = Update.de_json(update_data, application.bot)
+                # Create a new event loop for this request
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(application.process_update(update))
+                finally:
+                    loop.close()
+                return "OK", 200
+            else:
+                logger.warning("Received empty webhook data")
+                return "No data", 400
+        return "Method not allowed", 405
+    except Exception as e:
+        logger.error(f"Error processing webhook: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return "Error", 500
 
 @app.route('/', methods=['GET'])
 def index():
@@ -360,10 +376,22 @@ async def setup_bot():
     
     # Setup webhook if URL is provided
     if WEBHOOK_URL:
+        # First, delete any existing webhook to avoid conflicts
+        print("🧹 Clearing any existing webhooks...", flush=True)
+        await application.bot.delete_webhook(drop_pending_updates=True)
+        
+        # Set the new webhook
         webhook_url = f"{WEBHOOK_URL}/webhook"
         print(f"🌐 Setting webhook URL: {webhook_url}", flush=True)
-        await application.bot.set_webhook(webhook_url)
-        print("✅ Webhook set successfully", flush=True)
+        webhook_set = await application.bot.set_webhook(webhook_url)
+        
+        if webhook_set:
+            print("✅ Webhook set successfully", flush=True)
+            # Verify webhook info
+            webhook_info = await application.bot.get_webhook_info()
+            print(f"📡 Webhook info: {webhook_info.url}", flush=True)
+        else:
+            print("❌ Failed to set webhook", flush=True)
     else:
         print("⚠️ No WEBHOOK_URL set, webhook not configured", flush=True)
 
