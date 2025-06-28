@@ -22,7 +22,7 @@ steps:
     args: 
       - 'build'
       - '-f'
-      - 'telegram-bot/Dockerfile'
+      - 'telegram-bot/simple_dockerfile'
       - '-t'
       - 'gcr.io/$PROJECT_ID/telegram-bot:$COMMIT_SHA'
       - '.'

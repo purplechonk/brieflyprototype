@@ -149,7 +149,7 @@ def get_unlabeled_articles_for_user(user_id, limit=10):
             print(f"🔍 Found {len(articles)} recent articles", flush=True)
         
         cursor.close()
-        conn.close()
+            conn.close()
         logger.info(f"Found {len(articles)} unlabeled articles for user {user_id}")
         return articles
     except Exception as e:
@@ -171,13 +171,13 @@ def save_user_article_label(user_id, article_uri, label):
         # Use INSERT ... ON CONFLICT to handle updates
         cursor.execute("""
             INSERT INTO user_interactions (user_id, uri, interaction_type)
-            VALUES (%s, %s, %s)
+                    VALUES (%s, %s, %s)
             ON CONFLICT (user_id, uri)
             DO UPDATE SET 
                 interaction_type = EXCLUDED.interaction_type,
                 updated_at = CURRENT_TIMESTAMP
         """, (user_id, article_uri, label))
-        conn.commit()
+            conn.commit()
         cursor.close()
         conn.close()
         logger.info(f"Saved label '{label}' for user {user_id}, article {article_uri}")
@@ -206,7 +206,7 @@ def get_user_labeling_stats(user_id):
         """, (user_id,))
         stats = cursor.fetchone()
         cursor.close()
-        conn.close()
+            conn.close()
         return stats
     except Exception as e:
         logger.error(f"Error getting user stats: {str(e)}")
@@ -373,8 +373,8 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancel conversation"""
     await update.message.reply_text("Labeling session cancelled.")
-    return ConversationHandler.END
-
+        return ConversationHandler.END
+    
 def create_bot_application():
     """Create and configure the bot application"""
     print("🔧 create_bot_application() called", flush=True)
@@ -509,9 +509,9 @@ def setup_bot():
         print("🔧 Adding handlers...", flush=True)
         
         # Create conversation handler
-        conv_handler = ConversationHandler(
-            entry_points=[CommandHandler('start', start)],
-            states={
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('start', start)],
+        states={
                 WAITING_FOR_LABEL: [CallbackQueryHandler(handle_label)]
             },
             fallbacks=[CommandHandler('cancel', cancel)]
