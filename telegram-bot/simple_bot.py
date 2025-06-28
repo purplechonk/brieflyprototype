@@ -56,6 +56,12 @@ def webhook():
             if update_data:
                 update = Update.de_json(update_data, application.bot)
                 print(f"✅ Update parsed successfully: {update.update_id}", flush=True)
+                print(f"📋 Update type: {type(update.message).__name__ if update.message else 'callback_query' if update.callback_query else 'unknown'}", flush=True)
+                
+                if update.message:
+                    print(f"💬 Message text: {update.message.text}", flush=True)
+                if update.callback_query:
+                    print(f"🔲 Callback data: {update.callback_query.data}", flush=True)
                 
                 # Create a new event loop for this request
                 loop = asyncio.new_event_loop()
@@ -64,6 +70,11 @@ def webhook():
                     print("🚀 Processing update...", flush=True)
                     loop.run_until_complete(application.process_update(update))
                     print("✅ Update processed successfully", flush=True)
+                except Exception as process_error:
+                    print(f"❌ Error processing update: {process_error}", flush=True)
+                    import traceback
+                    print(f"📋 Process traceback: {traceback.format_exc()}", flush=True)
+                    raise
                 finally:
                     loop.close()
                 return "OK", 200
@@ -230,35 +241,58 @@ def get_user_labeling_stats(user_id):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start command handler"""
-    user = update.effective_user
-    user_id = user.id
-    logger.info(f"User {user.first_name} (ID: {user_id}) started the bot")
-    
-    # Get user's labeling stats
-    stats = get_user_labeling_stats(user_id)
-    stats_text = ""
-    if stats:
-        total, positive, negative, neutral = stats
-        if total > 0:
-            stats_text = f"\n📊 Your stats: {total} articles labeled ({positive} positive, {negative} negative, {neutral} neutral)"
-    
-    # Store user info in context
-    context.user_data['user_id'] = user_id
-    
-    # Send welcome message with category selection
-    welcome_msg = f"Welcome to Briefly News Labeling Bot! 📰{stats_text}\n\n"
-    welcome_msg += "Please choose a news category:"
-    
-    # Create category selection keyboard
-    keyboard = [
-        [InlineKeyboardButton("🌍 Geopolitics News", callback_data="category_geopolitics")],
-        [InlineKeyboardButton("🇸🇬 Singapore News", callback_data="category_singapore")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(welcome_msg, reply_markup=reply_markup)
-    
-    return WAITING_FOR_CATEGORY
+    try:
+        print("🚀 Start command received!", flush=True)
+        user = update.effective_user
+        user_id = user.id
+        print(f"👤 User: {user.first_name} (ID: {user_id})", flush=True)
+        logger.info(f"User {user.first_name} (ID: {user_id}) started the bot")
+        
+        # Get user's labeling stats
+        print("📊 Getting user stats...", flush=True)
+        stats = get_user_labeling_stats(user_id)
+        stats_text = ""
+        if stats:
+            total, positive, negative, neutral = stats
+            if total > 0:
+                stats_text = f"\n📊 Your stats: {total} articles labeled ({positive} positive, {negative} negative, {neutral} neutral)"
+        print(f"✅ Stats retrieved: {stats_text}", flush=True)
+        
+        # Store user info in context
+        context.user_data['user_id'] = user_id
+        print("💾 User data stored in context", flush=True)
+        
+        # Send welcome message with category selection
+        welcome_msg = f"Welcome to Briefly News Labeling Bot! 📰{stats_text}\n\n"
+        welcome_msg += "Please choose a news category:"
+        
+        # Create category selection keyboard
+        keyboard = [
+            [InlineKeyboardButton("🌍 Geopolitics News", callback_data="category_geopolitics")],
+            [InlineKeyboardButton("🇸🇬 Singapore News", callback_data="category_singapore")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        print("📤 Sending welcome message with category buttons...", flush=True)
+        await update.message.reply_text(welcome_msg, reply_markup=reply_markup)
+        print("✅ Welcome message sent successfully!", flush=True)
+        
+        return WAITING_FOR_CATEGORY
+        
+    except Exception as e:
+        error_msg = f"Error in start command: {str(e)}"
+        print(f"❌ {error_msg}", flush=True)
+        logger.error(error_msg)
+        import traceback
+        print(f"📋 Traceback: {traceback.format_exc()}", flush=True)
+        
+        # Try to send error message
+        try:
+            await update.message.reply_text("❌ Sorry, something went wrong. Please try again.")
+        except Exception as send_error:
+            print(f"❌ Could not send error message: {send_error}", flush=True)
+        
+        return ConversationHandler.END
 
 async def handle_category_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle user's category selection"""
@@ -452,9 +486,31 @@ async def setup_bot():
         fallbacks=[CommandHandler('cancel', cancel)]
     )
     
+    # Add error handler
+    async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Log the error and send a message to notify the developer."""
+        print(f"❌ Exception while handling an update: {context.error}", flush=True)
+        logger.error(f"Exception while handling an update: {context.error}")
+        
+        # Print full traceback for debugging
+        import traceback
+        traceback_msg = traceback.format_exception(type(context.error), context.error, context.error.__traceback__)
+        print(f"📋 Full traceback: {''.join(traceback_msg)}", flush=True)
+        
+        # Try to send error message to user if possible
+        if update and hasattr(update, 'effective_chat') and update.effective_chat:
+            try:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="⚠️ Sorry, something went wrong. Please try again with /start"
+                )
+            except Exception as e:
+                print(f"❌ Could not send error message to user: {e}", flush=True)
+
     # Add handlers
     application.add_handler(conv_handler)
     application.add_handler(CommandHandler('stats', stats_command))
+    application.add_error_handler(error_handler)
     print("✅ Handlers added", flush=True)
     
     # Initialize the application
