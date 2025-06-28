@@ -516,6 +516,13 @@ def setup_bot_sync():
     application.add_error_handler(error_handler)
     print("✅ Handlers added", flush=True)
     
+    # Initialize the application synchronously
+    async def init_app():
+        await application.initialize()
+        print("✅ Application initialized", flush=True)
+    
+    asyncio.run(init_app())
+    
     return application
 
 def main():
