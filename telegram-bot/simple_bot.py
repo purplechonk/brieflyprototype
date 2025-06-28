@@ -330,10 +330,35 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Labeling session cancelled.")
     return ConversationHandler.END
 
-async def setup_webhook():
-    """Setup webhook for the bot"""
+async def setup_bot():
+    """Setup bot application and webhook"""
     global application
     
+    print("🤖 Creating bot application...", flush=True)
+    
+    # Create application
+    application = Application.builder().token(TOKEN).build()
+    print("✅ Application created", flush=True)
+    
+    # Create conversation handler
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('start', start)],
+        states={
+            WAITING_FOR_LABEL: [CallbackQueryHandler(handle_label)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)]
+    )
+    
+    # Add handlers
+    application.add_handler(conv_handler)
+    application.add_handler(CommandHandler('stats', stats_command))
+    print("✅ Handlers added", flush=True)
+    
+    # Initialize the application
+    await application.initialize()
+    print("✅ Application initialized", flush=True)
+    
+    # Setup webhook if URL is provided
     if WEBHOOK_URL:
         webhook_url = f"{WEBHOOK_URL}/webhook"
         print(f"🌐 Setting webhook URL: {webhook_url}", flush=True)
@@ -344,8 +369,6 @@ async def setup_webhook():
 
 def main():
     """Main function"""
-    global application
-    
     print("=== STARTING SIMPLE TELEGRAM BOT ===", flush=True)
     print(f"Python version: {sys.version}", flush=True)
     print(f"Environment variables:", flush=True)
@@ -363,32 +386,8 @@ def main():
         return
     
     try:
-        print("🤖 Creating bot application...", flush=True)
-        
-        # Create application
-        application = Application.builder().token(TOKEN).build()
-        print("✅ Application created", flush=True)
-        
-        # Create conversation handler
-        conv_handler = ConversationHandler(
-            entry_points=[CommandHandler('start', start)],
-            states={
-                WAITING_FOR_LABEL: [CallbackQueryHandler(handle_label)]
-            },
-            fallbacks=[CommandHandler('cancel', cancel)]
-        )
-        
-        # Add handlers
-        application.add_handler(conv_handler)
-        application.add_handler(CommandHandler('stats', stats_command))
-        print("✅ Handlers added", flush=True)
-        
-        # Initialize the application
-        asyncio.run(application.initialize())
-        
-        # Setup webhook if URL is provided
-        if WEBHOOK_URL:
-            asyncio.run(setup_webhook())
+        # Setup bot in a single async run
+        asyncio.run(setup_bot())
         
         print(f"🚀 Starting Flask server on port {PORT}...", flush=True)
         logger.info(f"Starting Flask server on port {PORT}")
