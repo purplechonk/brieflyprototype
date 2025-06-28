@@ -63,49 +63,21 @@ def webhook():
                 if update.callback_query:
                     print(f"🔲 Callback data: {update.callback_query.data}", flush=True)
                 
-                # Process update using threading to avoid event loop conflicts
-                import threading
-                import queue
-                
-                result_queue = queue.Queue()
-                exception_queue = queue.Queue()
-                
-                def process_update_thread():
-                    """Process update in a separate thread with its own event loop"""
-                    try:
-                        # Create new event loop for this thread
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        
-                        print("🚀 Processing update in thread...", flush=True)
-                        loop.run_until_complete(application.process_update(update))
-                        print("✅ Update processed successfully", flush=True)
-                        
-                        result_queue.put("success")
-                    except Exception as e:
-                        print(f"❌ Error in thread processing: {e}", flush=True)
-                        exception_queue.put(e)
-                    finally:
-                        try:
-                            loop.close()
-                        except:
-                            pass
-                
-                # Start processing in separate thread
-                thread = threading.Thread(target=process_update_thread)
-                thread.start()
-                thread.join(timeout=30)  # 30 second timeout
-                
-                # Check results
-                if not exception_queue.empty():
-                    error = exception_queue.get()
-                    print(f"❌ Thread processing failed: {error}", flush=True)
+                # Process update with simple asyncio.run
+                try:
+                    print("🚀 Processing update with asyncio.run...", flush=True)
+                    
+                    async def process_update_async():
+                        await application.process_update(update)
+                    
+                    # Use asyncio.run to create a fresh event loop for each request
+                    asyncio.run(process_update_async())
+                    print("✅ Update processed successfully", flush=True)
+                    
+                except Exception as process_error:
+                    print(f"❌ Error processing update: {process_error}", flush=True)
                     import traceback
-                    print(f"📋 Thread traceback: {traceback.format_exc()}", flush=True)
-                elif exception_queue.empty() and result_queue.empty():
-                    print("⚠️ Processing timed out", flush=True)
-                else:
-                    print("✅ Thread processing completed", flush=True)
+                    print(f"📋 Process traceback: {traceback.format_exc()}", flush=True)
                 return "OK", 200
             else:
                 logger.warning("Received empty webhook data")
@@ -495,11 +467,13 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Labeling session cancelled.")
     return ConversationHandler.END
 
-async def setup_bot():
-    """Setup bot application and webhook"""
+
+
+def setup_bot_sync():
+    """Setup bot application synchronously for webhook use"""
     global application
     
-    print("🤖 Creating bot application...", flush=True)
+    print("🤖 Creating bot application for webhooks...", flush=True)
     
     # Create application
     application = Application.builder().token(TOKEN).build()
@@ -542,30 +516,7 @@ async def setup_bot():
     application.add_error_handler(error_handler)
     print("✅ Handlers added", flush=True)
     
-    # Initialize the application
-    await application.initialize()
-    print("✅ Application initialized", flush=True)
-    
-    # Setup webhook if URL is provided
-    if WEBHOOK_URL:
-        # First, delete any existing webhook to avoid conflicts
-        print("🧹 Clearing any existing webhooks...", flush=True)
-        await application.bot.delete_webhook(drop_pending_updates=True)
-        
-        # Set the new webhook
-        webhook_url = f"{WEBHOOK_URL}/webhook"
-        print(f"🌐 Setting webhook URL: {webhook_url}", flush=True)
-        webhook_set = await application.bot.set_webhook(webhook_url)
-        
-        if webhook_set:
-            print("✅ Webhook set successfully", flush=True)
-            # Verify webhook info
-            webhook_info = await application.bot.get_webhook_info()
-            print(f"📡 Webhook info: {webhook_info.url}", flush=True)
-        else:
-            print("❌ Failed to set webhook", flush=True)
-    else:
-        print("⚠️ No WEBHOOK_URL set, webhook not configured", flush=True)
+    return application
 
 def main():
     """Main function"""
@@ -586,8 +537,33 @@ def main():
         return
     
     try:
-        # Setup bot in a single async run
-        asyncio.run(setup_bot())
+        # Setup bot synchronously for webhook mode
+        setup_bot_sync()
+        
+        # Setup webhook if URL is provided
+        if WEBHOOK_URL:
+            async def setup_webhook_async():
+                # First, delete any existing webhook to avoid conflicts
+                print("🧹 Clearing any existing webhooks...", flush=True)
+                await application.bot.delete_webhook(drop_pending_updates=True)
+                
+                # Set the new webhook
+                webhook_url = f"{WEBHOOK_URL}/webhook"
+                print(f"🌐 Setting webhook URL: {webhook_url}", flush=True)
+                webhook_set = await application.bot.set_webhook(webhook_url)
+                
+                if webhook_set:
+                    print("✅ Webhook set successfully", flush=True)
+                    # Verify webhook info
+                    webhook_info = await application.bot.get_webhook_info()
+                    print(f"📡 Webhook info: {webhook_info.url}", flush=True)
+                else:
+                    print("❌ Failed to set webhook", flush=True)
+            
+            # Set up webhook
+            asyncio.run(setup_webhook_async())
+        else:
+            print("⚠️ No WEBHOOK_URL set, webhook not configured", flush=True)
         
         print(f"🚀 Starting Flask server on port {PORT}...", flush=True)
         logger.info(f"Starting Flask server on port {PORT}")
