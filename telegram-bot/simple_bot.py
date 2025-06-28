@@ -63,20 +63,49 @@ def webhook():
                 if update.callback_query:
                     print(f"🔲 Callback data: {update.callback_query.data}", flush=True)
                 
-                # Create a new event loop for this request
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    print("🚀 Processing update...", flush=True)
-                    loop.run_until_complete(application.process_update(update))
-                    print("✅ Update processed successfully", flush=True)
-                except Exception as process_error:
-                    print(f"❌ Error processing update: {process_error}", flush=True)
+                # Process update using threading to avoid event loop conflicts
+                import threading
+                import queue
+                
+                result_queue = queue.Queue()
+                exception_queue = queue.Queue()
+                
+                def process_update_thread():
+                    """Process update in a separate thread with its own event loop"""
+                    try:
+                        # Create new event loop for this thread
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        
+                        print("🚀 Processing update in thread...", flush=True)
+                        loop.run_until_complete(application.process_update(update))
+                        print("✅ Update processed successfully", flush=True)
+                        
+                        result_queue.put("success")
+                    except Exception as e:
+                        print(f"❌ Error in thread processing: {e}", flush=True)
+                        exception_queue.put(e)
+                    finally:
+                        try:
+                            loop.close()
+                        except:
+                            pass
+                
+                # Start processing in separate thread
+                thread = threading.Thread(target=process_update_thread)
+                thread.start()
+                thread.join(timeout=30)  # 30 second timeout
+                
+                # Check results
+                if not exception_queue.empty():
+                    error = exception_queue.get()
+                    print(f"❌ Thread processing failed: {error}", flush=True)
                     import traceback
-                    print(f"📋 Process traceback: {traceback.format_exc()}", flush=True)
-                    raise
-                finally:
-                    loop.close()
+                    print(f"📋 Thread traceback: {traceback.format_exc()}", flush=True)
+                elif exception_queue.empty() and result_queue.empty():
+                    print("⚠️ Processing timed out", flush=True)
+                else:
+                    print("✅ Thread processing completed", flush=True)
                 return "OK", 200
             else:
                 logger.warning("Received empty webhook data")
