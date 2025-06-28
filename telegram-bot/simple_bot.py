@@ -43,33 +43,60 @@ def health_check():
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """Handle incoming webhook updates"""
+    print("🔔 Webhook endpoint called!", flush=True)
+    logger.info("Webhook endpoint called")
+    
     try:
         if request.method == "POST":
+            print("📨 Received POST request", flush=True)
             update_data = request.get_json(force=True)
+            print(f"📄 Webhook data: {update_data}", flush=True)
+            
             if update_data:
                 update = Update.de_json(update_data, application.bot)
+                print(f"✅ Update parsed successfully: {update.update_id}", flush=True)
+                
                 # Create a new event loop for this request
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
+                    print("🚀 Processing update...", flush=True)
                     loop.run_until_complete(application.process_update(update))
+                    print("✅ Update processed successfully", flush=True)
                 finally:
                     loop.close()
                 return "OK", 200
             else:
                 logger.warning("Received empty webhook data")
+                print("⚠️ Empty webhook data received", flush=True)
                 return "No data", 400
         return "Method not allowed", 405
     except Exception as e:
-        logger.error(f"Error processing webhook: {str(e)}")
+        error_msg = f"Error processing webhook: {str(e)}"
+        logger.error(error_msg)
+        print(f"❌ {error_msg}", flush=True)
         import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
+        traceback_msg = traceback.format_exc()
+        logger.error(f"Traceback: {traceback_msg}")
+        print(f"📋 Traceback: {traceback_msg}", flush=True)
         return "Error", 500
 
 @app.route('/', methods=['GET'])
 def index():
     """Root endpoint"""
     return {"message": "Simple Telegram Bot is running", "status": "ok"}, 200
+
+@app.route('/test', methods=['GET'])
+def test_endpoint():
+    """Test endpoint to verify the service is working"""
+    global application
+    return {
+        "message": "Bot service is healthy",
+        "bot_initialized": application is not None,
+        "webhook_url": WEBHOOK_URL,
+        "database_configured": DATABASE_URL is not None,
+        "status": "ok"
+    }, 200
 
 def get_db_connection():
     """Get database connection"""

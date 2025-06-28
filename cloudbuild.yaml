@@ -79,7 +79,7 @@ substitutions:
   _DATABASE_URL: 'your-database-url'
   _CLOUD_SQL_INSTANCE: 'briefly-prototype:asia-southeast1:news-db'
   _TELEGRAM_BOT_TOKEN: 'your-telegram-bot-token'
-  _WEBHOOK_URL: 'https://telegram-bot-YOUR_REGION-YOUR_PROJECT_ID.a.run.app'
+  _WEBHOOK_URL: 'https://telegram-bot-559438835186.europe-west1.run.app'
 
 options:
   logging: CLOUD_LOGGING_ONLY 
