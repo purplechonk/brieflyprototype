@@ -59,9 +59,11 @@ def get_unlabeled_articles_for_user(user_id, category=None, limit=10):
         
         if category:
             if category.lower() == 'geopolitics':
-                category_filter = "AND LOWER(a.category) LIKE '%geopolitics%'"
+                category_filter = "AND LOWER(a.category) LIKE %s"
+                params.append('%geopolitics%')
             elif category.lower() == 'singapore':
-                category_filter = "AND LOWER(a.category) LIKE '%singapore%'"
+                category_filter = "AND LOWER(a.category) LIKE %s"
+                params.append('%singapore%')
         
         # Get articles from today that this user hasn't labeled yet
         print(f"🔍 Querying for today's articles with category filter...", flush=True)
@@ -110,10 +112,18 @@ def get_unlabeled_articles_for_user(user_id, category=None, limit=10):
                 ORDER BY a.published_date DESC 
                 LIMIT %s
             """
-            params = [user_id, limit]
+            # Rebuild params for fallback query
+            fallback_params = [user_id]
+            if category:
+                if category.lower() == 'geopolitics':
+                    fallback_params.append('%geopolitics%')
+                elif category.lower() == 'singapore':
+                    fallback_params.append('%singapore%')
+            fallback_params.append(limit)
+            
             print(f"🔍 Executing fallback query: {query}", flush=True)
-            print(f"🔍 Fallback params: {params}", flush=True)
-            cursor.execute(query, params)
+            print(f"🔍 Fallback params: {fallback_params}", flush=True)
+            cursor.execute(query, fallback_params)
             articles = cursor.fetchall()
             print(f"🔍 Found {len(articles)} recent articles", flush=True)
             if articles:
