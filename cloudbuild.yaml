@@ -6,7 +6,7 @@ steps:
       - '-f'
       - 'news-collector/Dockerfile'
       - '-t'
-      - 'gcr.io/$PROJECT_ID/news-collector:$COMMIT_SHA'
+      - 'gcr.io/$PROJECT_ID/briefly-news-collector:$COMMIT_SHA'
       - '.'
     id: 'build-news-collector'
 
@@ -14,7 +14,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'gcr.io/$PROJECT_ID/news-collector:$COMMIT_SHA'
+      - 'gcr.io/$PROJECT_ID/briefly-news-collector:$COMMIT_SHA'
     id: 'push-news-collector'
 
   # Build telegram bot service
@@ -41,9 +41,9 @@ steps:
     args:
       - 'run'
       - 'deploy'
-      - 'news-collector'
+      - 'briefly-news-collector'
       - '--image'
-      - 'gcr.io/$PROJECT_ID/news-collector:$COMMIT_SHA'
+      - 'gcr.io/$PROJECT_ID/briefly-news-collector:$COMMIT_SHA'
       - '--region'
       - 'europe-west1'
       - '--platform'
