@@ -469,6 +469,53 @@ async def debug_database_command(update: Update, context: ContextTypes.DEFAULT_T
         
         cursor = conn.cursor()
         
+        # Check user_interactions table structure and constraints
+        cursor.execute("""
+            SELECT conname, consrc 
+            FROM pg_constraint 
+            JOIN pg_class ON conrelid = pg_class.oid 
+            WHERE relname = 'user_interactions' AND contype = 'c';
+        """)
+        constraints = cursor.fetchall()
+        
+        if constraints:
+            constraint_text = "🔧 **USER_INTERACTIONS CONSTRAINTS:**\n\n"
+            for name, src in constraints:
+                constraint_text += f"• `{name}`: {src}\n"
+            await update.message.reply_text(constraint_text, parse_mode='Markdown')
+        
+        # Check existing interaction_type values in the table
+        cursor.execute("""
+            SELECT DISTINCT interaction_type, COUNT(*) 
+            FROM user_interactions 
+            GROUP BY interaction_type 
+            ORDER BY COUNT(*) DESC;
+        """)
+        existing_types = cursor.fetchall()
+        
+        if existing_types:
+            types_text = "📊 **EXISTING INTERACTION TYPES:**\n\n"
+            for itype, count in existing_types:
+                types_text += f"• `{itype}`: {count} records\n"
+            await update.message.reply_text(types_text, parse_mode='Markdown')
+        else:
+            await update.message.reply_text("📊 **EXISTING INTERACTION TYPES:** No records found")
+        
+        # Try to get table definition
+        cursor.execute("""
+            SELECT column_name, data_type, is_nullable, column_default
+            FROM information_schema.columns
+            WHERE table_name = 'user_interactions'
+            ORDER BY ordinal_position;
+        """)
+        columns = cursor.fetchall()
+        
+        if columns:
+            columns_text = "🗂️ **USER_INTERACTIONS COLUMNS:**\n\n"
+            for col_name, data_type, nullable, default in columns:
+                columns_text += f"• `{col_name}`: {data_type} (nullable: {nullable})\n"
+            await update.message.reply_text(columns_text, parse_mode='Markdown')
+        
         # 1. Show unique categories
         cursor.execute("SELECT DISTINCT category, COUNT(*) FROM articles GROUP BY category ORDER BY COUNT(*) DESC;")
         categories = cursor.fetchall()
