@@ -20,5 +20,11 @@ COPY telegram-bot/simple_bot.py .
 # Create a simple .env file (will be overridden by Cloud Run env vars)
 RUN echo "# Environment variables will be set by Cloud Run" > .env
 
+# Expose port 8080 for Cloud Run
+EXPOSE 8080
+
+# Set environment variable for port
+ENV PORT=8080
+
 # Run the bot
 CMD ["python", "simple_bot.py"] 

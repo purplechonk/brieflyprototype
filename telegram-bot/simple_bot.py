@@ -7,21 +7,53 @@ from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ConversationHandler, ContextTypes
 import logging
+from psycopg2.extras import RealDictCursor
+from flask import Flask, request
+import threading
+import json
 
 # Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Will be set by Cloud Run
+PORT = int(os.getenv("PORT", 8080))
 
 print(f"Bot token present: {bool(TOKEN)}", flush=True)
 print(f"Database URL present: {bool(DATABASE_URL)}", flush=True)
 
 # Bot conversation states
 WAITING_FOR_LABEL = 1
+
+# Global application instance
+application = None
+
+# Flask app for webhooks
+app = Flask(__name__)
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint for Cloud Run"""
+    return {"status": "healthy", "bot": "simple_telegram_bot"}, 200
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    """Handle incoming webhook updates"""
+    if request.method == "POST":
+        update = Update.de_json(request.get_json(force=True), application.bot)
+        # Handle the update asynchronously
+        asyncio.create_task(application.process_update(update))
+        return "OK"
+    return "Method not allowed", 405
+
+@app.route('/', methods=['GET'])
+def index():
+    """Root endpoint"""
+    return {"message": "Simple Telegram Bot is running", "status": "ok"}, 200
 
 def get_db_connection():
     """Get database connection"""
@@ -298,13 +330,29 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Labeling session cancelled.")
     return ConversationHandler.END
 
+async def setup_webhook():
+    """Setup webhook for the bot"""
+    global application
+    
+    if WEBHOOK_URL:
+        webhook_url = f"{WEBHOOK_URL}/webhook"
+        print(f"🌐 Setting webhook URL: {webhook_url}", flush=True)
+        await application.bot.set_webhook(webhook_url)
+        print("✅ Webhook set successfully", flush=True)
+    else:
+        print("⚠️ No WEBHOOK_URL set, webhook not configured", flush=True)
+
 def main():
     """Main function"""
+    global application
+    
     print("=== STARTING SIMPLE TELEGRAM BOT ===", flush=True)
     print(f"Python version: {sys.version}", flush=True)
     print(f"Environment variables:", flush=True)
     print(f"  - TELEGRAM_BOT_TOKEN present: {bool(TOKEN)}", flush=True)
     print(f"  - DATABASE_URL present: {bool(DATABASE_URL)}", flush=True)
+    print(f"  - WEBHOOK_URL: {WEBHOOK_URL}", flush=True)
+    print(f"  - PORT: {PORT}", flush=True)
     
     if not TOKEN:
         print("❌ TELEGRAM_BOT_TOKEN not found!", flush=True)
@@ -335,11 +383,18 @@ def main():
         application.add_handler(CommandHandler('stats', stats_command))
         print("✅ Handlers added", flush=True)
         
-        print("🚀 Starting bot with polling...", flush=True)
-        logger.info("Starting Telegram bot with polling")
+        # Initialize the application
+        asyncio.run(application.initialize())
         
-        # Run the bot
-        application.run_polling(drop_pending_updates=True)
+        # Setup webhook if URL is provided
+        if WEBHOOK_URL:
+            asyncio.run(setup_webhook())
+        
+        print(f"🚀 Starting Flask server on port {PORT}...", flush=True)
+        logger.info(f"Starting Flask server on port {PORT}")
+        
+        # Start Flask app (this will block)
+        app.run(host='0.0.0.0', port=PORT, debug=False)
         
     except Exception as e:
         error_msg = f"Error starting bot: {str(e)}"

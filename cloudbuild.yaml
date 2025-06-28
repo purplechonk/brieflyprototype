@@ -67,8 +67,10 @@ steps:
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
+      - '--port'
+      - '8080'
       - '--set-env-vars'
-      - 'TELEGRAM_BOT_TOKEN=${_TELEGRAM_BOT_TOKEN},DATABASE_URL=${_DATABASE_URL}'
+      - 'TELEGRAM_BOT_TOKEN=${_TELEGRAM_BOT_TOKEN},DATABASE_URL=${_DATABASE_URL},WEBHOOK_URL=${_WEBHOOK_URL}'
     id: 'deploy-telegram-bot'
 
 # Substitution variables (you'll set these in Cloud Build triggers)
@@ -77,6 +79,7 @@ substitutions:
   _DATABASE_URL: 'your-database-url'
   _CLOUD_SQL_INSTANCE: 'briefly-prototype:asia-southeast1:news-db'
   _TELEGRAM_BOT_TOKEN: 'your-telegram-bot-token'
+  _WEBHOOK_URL: 'https://telegram-bot-YOUR_REGION-YOUR_PROJECT_ID.a.run.app'
 
 options:
   logging: CLOUD_LOGGING_ONLY 
