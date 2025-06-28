@@ -59,7 +59,7 @@ def get_unlabeled_articles_for_user(user_id, category=None, limit=10):
         
         if category:
             if category.lower() == 'geopolitics':
-                category_filter = "AND LOWER(a.category) LIKE '%geopolitic%'"
+                category_filter = "AND LOWER(a.category) LIKE '%geopolitics%'"
             elif category.lower() == 'singapore':
                 category_filter = "AND LOWER(a.category) LIKE '%singapore%'"
         
