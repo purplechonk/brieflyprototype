@@ -1,16 +1,15 @@
 import os
 import sys
 import asyncio
-import psycopg2
-from datetime import datetime
-from dotenv import load_dotenv
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ConversationHandler, ContextTypes
 import logging
-from psycopg2.extras import RealDictCursor
-from flask import Flask, request
 import threading
+import queue
 import json
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, ConversationHandler
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from dotenv import load_dotenv
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -32,84 +31,6 @@ WAITING_FOR_LABEL = 2
 
 # Global application instance
 application = None
-
-# Flask app for webhooks
-app = Flask(__name__)
-
-@app.route('/health', methods=['GET'])
-def health_check():
-    """Health check endpoint for Cloud Run"""
-    return {"status": "healthy", "bot": "simple_telegram_bot"}, 200
-
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    """Handle incoming webhook updates"""
-    print("🔔 Webhook endpoint called!", flush=True)
-    logger.info("Webhook endpoint called")
-    
-    try:
-        if request.method == "POST":
-            print("📨 Received POST request", flush=True)
-            update_data = request.get_json(force=True)
-            print(f"📄 Webhook data: {update_data}", flush=True)
-            
-            if update_data:
-                update = Update.de_json(update_data, application.bot)
-                print(f"✅ Update parsed successfully: {update.update_id}", flush=True)
-                print(f"📋 Update type: {type(update.message).__name__ if update.message else 'callback_query' if update.callback_query else 'unknown'}", flush=True)
-                
-                if update.message:
-                    print(f"💬 Message text: {update.message.text}", flush=True)
-                if update.callback_query:
-                    print(f"🔲 Callback data: {update.callback_query.data}", flush=True)
-                
-                # Process update with simple asyncio.run
-                try:
-                    print("🚀 Processing update with asyncio.run...", flush=True)
-                    
-                    async def process_update_async():
-                        await application.process_update(update)
-                    
-                    # Use asyncio.run to create a fresh event loop for each request
-                    asyncio.run(process_update_async())
-                    print("✅ Update processed successfully", flush=True)
-                    
-                except Exception as process_error:
-                    print(f"❌ Error processing update: {process_error}", flush=True)
-                    import traceback
-                    print(f"📋 Process traceback: {traceback.format_exc()}", flush=True)
-                return "OK", 200
-            else:
-                logger.warning("Received empty webhook data")
-                print("⚠️ Empty webhook data received", flush=True)
-                return "No data", 400
-        return "Method not allowed", 405
-    except Exception as e:
-        error_msg = f"Error processing webhook: {str(e)}"
-        logger.error(error_msg)
-        print(f"❌ {error_msg}", flush=True)
-        import traceback
-        traceback_msg = traceback.format_exc()
-        logger.error(f"Traceback: {traceback_msg}")
-        print(f"📋 Traceback: {traceback_msg}", flush=True)
-        return "Error", 500
-
-@app.route('/', methods=['GET'])
-def index():
-    """Root endpoint"""
-    return {"message": "Simple Telegram Bot is running", "status": "ok"}, 200
-
-@app.route('/test', methods=['GET'])
-def test_endpoint():
-    """Test endpoint to verify the service is working"""
-    global application
-    return {
-        "message": "Bot service is healthy",
-        "bot_initialized": application is not None,
-        "webhook_url": WEBHOOK_URL,
-        "database_configured": DATABASE_URL is not None,
-        "status": "ok"
-    }, 200
 
 def get_db_connection():
     """Get database connection"""
@@ -467,59 +388,20 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Labeling session cancelled.")
     return ConversationHandler.END
 
-
-
-def setup_bot_sync():
-    """Setup bot application synchronously for webhook use"""
-    global application
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log the error and send a message to notify the developer."""
+    print(f"❌ Exception while handling an update: {context.error}", flush=True)
+    logger.error(f"Exception while handling an update: {context.error}")
     
-    print("🤖 Creating bot application for webhooks...", flush=True)
-    
-    # Create application
-    application = Application.builder().token(TOKEN).build()
-    print("✅ Application created", flush=True)
-    
-    # Create conversation handler
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],
-        states={
-            WAITING_FOR_CATEGORY: [CallbackQueryHandler(handle_category_selection)],
-            WAITING_FOR_LABEL: [CallbackQueryHandler(handle_label)]
-        },
-        fallbacks=[CommandHandler('cancel', cancel)]
-    )
-    
-    # Add error handler
-    async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Log the error and send a message to notify the developer."""
-        print(f"❌ Exception while handling an update: {context.error}", flush=True)
-        logger.error(f"Exception while handling an update: {context.error}")
-        
-        # Print full traceback for debugging
-        import traceback
-        traceback_msg = traceback.format_exception(type(context.error), context.error, context.error.__traceback__)
-        print(f"📋 Full traceback: {''.join(traceback_msg)}", flush=True)
-        
-        # Try to send error message to user if possible
-        if update and hasattr(update, 'effective_chat') and update.effective_chat:
-            try:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="⚠️ Sorry, something went wrong. Please try again with /start"
-                )
-            except Exception as e:
-                print(f"❌ Could not send error message to user: {e}", flush=True)
-
-    # Add handlers
-    application.add_handler(conv_handler)
-    application.add_handler(CommandHandler('stats', stats_command))
-    application.add_error_handler(error_handler)
-    print("✅ Handlers added", flush=True)
-    
-    return application
+    # Print full traceback for debugging
+    import traceback
+    traceback_msg = traceback.format_exception(type(context.error), context.error, context.error.__traceback__)
+    print(f"📋 Full traceback: {''.join(traceback_msg)}", flush=True)
 
 def main():
-    """Main function"""
+    """Main function using python-telegram-bot's built-in webhook server"""
+    global application
+    
     print("=== STARTING SIMPLE TELEGRAM BOT ===", flush=True)
     print(f"Python version: {sys.version}", flush=True)
     print(f"Environment variables:", flush=True)
@@ -537,44 +419,41 @@ def main():
         return
     
     try:
-        # Setup bot synchronously for webhook mode
-        setup_bot_sync()
+        print("🤖 Creating bot application...", flush=True)
         
-        # Initialize application and setup webhook in a single async call
-        async def setup_bot_and_webhook():
-            # Initialize the application
-            await application.initialize()
-            print("✅ Application initialized", flush=True)
-            
-            # Setup webhook if URL is provided
-            if WEBHOOK_URL:
-                # First, delete any existing webhook to avoid conflicts
-                print("🧹 Clearing any existing webhooks...", flush=True)
-                await application.bot.delete_webhook(drop_pending_updates=True)
-                
-                # Set the new webhook
-                webhook_url = f"{WEBHOOK_URL}/webhook"
-                print(f"🌐 Setting webhook URL: {webhook_url}", flush=True)
-                webhook_set = await application.bot.set_webhook(webhook_url)
-                
-                if webhook_set:
-                    print("✅ Webhook set successfully", flush=True)
-                    # Verify webhook info
-                    webhook_info = await application.bot.get_webhook_info()
-                    print(f"📡 Webhook info: {webhook_info.url}", flush=True)
-                else:
-                    print("❌ Failed to set webhook", flush=True)
-            else:
-                print("⚠️ No WEBHOOK_URL set, webhook not configured", flush=True)
+        # Create application
+        application = Application.builder().token(TOKEN).build()
+        print("✅ Application created", flush=True)
         
-        # Run both initialization and webhook setup in single event loop
-        asyncio.run(setup_bot_and_webhook())
+        # Create conversation handler
+        conv_handler = ConversationHandler(
+            entry_points=[CommandHandler('start', start)],
+            states={
+                WAITING_FOR_CATEGORY: [CallbackQueryHandler(handle_category_selection)],
+                WAITING_FOR_LABEL: [CallbackQueryHandler(handle_label)]
+            },
+            fallbacks=[CommandHandler('cancel', cancel)]
+        )
         
-        print(f"🚀 Starting Flask server on port {PORT}...", flush=True)
-        logger.info(f"Starting Flask server on port {PORT}")
+        # Add handlers
+        application.add_handler(conv_handler)
+        application.add_handler(CommandHandler('stats', stats_command))
+        application.add_error_handler(error_handler)
+        print("✅ Handlers added", flush=True)
         
-        # Start Flask app (this will block)
-        app.run(host='0.0.0.0', port=PORT, debug=False)
+        if WEBHOOK_URL:
+            # Use built-in webhook server
+            print(f"🚀 Starting webhook server on port {PORT}...", flush=True)
+            application.run_webhook(
+                listen="0.0.0.0",
+                port=PORT,
+                webhook_url=f"{WEBHOOK_URL}/webhook",
+                drop_pending_updates=True
+            )
+        else:
+            # Fallback to polling for development
+            print("🚀 Starting with polling (no webhook URL set)...", flush=True)
+            application.run_polling(drop_pending_updates=True)
         
     except Exception as e:
         error_msg = f"Error starting bot: {str(e)}"
