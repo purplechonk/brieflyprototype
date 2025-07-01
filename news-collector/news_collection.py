@@ -222,60 +222,7 @@ def fetch_singapore_news(date_start, date_end):
             "asiaone.com",
             "8days.sg"
         ]},
-        # Add keyword filtering to ensure Singapore relevance
-        "keyword": {"$or": [
-            "Singapore",
-            "Singaporean",
-            "S'pore",
-            "SG",
-            "Lee Hsien Loong",
-            "Lawrence Wong",
-            "PAP",
-            "Workers' Party",
-            "PSP",
-            "MAS",
-            "HDB", 
-            "CPF",
-            "GST",
-            "COE",
-            "ERP",
-            "Marina Bay",
-            "Sentosa",
-            "Changi",
-            "Jurong",
-            "Orchard Road",
-            "CBD",
-            "Raffles Place",
-            "NUS",
-            "NTU",
-            "SMU",
-            "SUTD",
-            "SIT",
-            "ITE",
-            "MOH Singapore",
-            "MOM Singapore",
-            "MOE Singapore",
-            "Ministry of Health",
-            "Ministry of Manpower",
-            "Ministry of Education",
-            "Singapore dollar",
-            "SGD",
-            "Temasek",
-            "GIC",
-            "DBS",
-            "OCBC",
-            "UOB",
-            "SingTel",
-            "StarHub",
-            "Circles.Life",
-            "SMRT",
-            "SBS Transit",
-            "ComfortDelGro",
-            "Grab Singapore",
-            "foodpanda Singapore",
-            "Shopee Singapore",
-            "Sea Limited"
-        ]},
+
         "categoryUri": {"$or": [
             "dmoz/Regional/Asia/Singapore",
             "dmoz/Society/Government",
@@ -307,31 +254,17 @@ def fetch_singapore_sources(date_start, date_end):
             "asiaone.com",
             "8days.sg"
         ]},
-        # Focus on Singapore domestic content
+        # Focus on Singapore domestic content (max 15 keywords)
         "keyword": {"$or": [
             "Singapore",
             "Singaporean",
-            "local news",
-            "domestic",
             "HDB",
             "CPF", 
             "MRT",
-            "LRT",
-            "NEL",
-            "CCL",
-            "EWL",
-            "NSL",
-            "DTL",
-            "TEL",
-            "JRL",
-            "CRL",
             "Singapore government",
             "Parliament Singapore",
             "Ministry",
-            "statutory board",
             "town council",
-            "grassroots",
-            "Meet-the-People",
             "National Day",
             "CNY",
             "Deepavali",
@@ -364,22 +297,17 @@ def fetch_singapore_international(date_start, date_end):
             "Singaporean", 
             "Lee Hsien Loong",
             "Lawrence Wong",
-            "PAP Singapore",
-            "MAS Singapore",
             "Singapore government",
             "Singapore economy",
-            "Singapore technology",
-            "Singapore startup",
             "Marina Bay",
-            "Sentosa",
             "Changi Airport",
-            "HDB Singapore",
-            "CPF Singapore",
-            "NUS Singapore",
-            "NTU Singapore",
             "Singapore dollar",
+            "Temasek Holdings",
+            "DBS Bank",
+            "OCBC",
+            "UOB",
             "GIC Singapore",
-            "Temasek Holdings"
+            "MAS Singapore"
         ]},
         "sourceUri": {"$or": [
             "reuters.com",
@@ -485,19 +413,14 @@ def is_singapore_relevant(article):
         'ministry of', 'moh singapore', 'mom singapore', 'moe singapore'
     ]
     
-    # Non-Singapore indicators (strong signals it's not Singapore news)
+    # Non-Singapore indicators (only very obvious non-Singapore content)
     non_singapore_indicators = [
-        'washington', 'new york', 'london', 'tokyo', 'beijing', 'moscow',
-        'white house', 'congress', 'senate', 'house of representatives',
-        'president trump', 'president biden', 'trump', 'biden',
-        'european union', 'brexit', 'nato', 'g7', 'g20',
-        'federal reserve', 'fed rate', 'wall street', 'dow jones',
-        'ftse', 'nikkei', 'hang seng', 'kospi', 'asx',
-        'ukraine', 'russia', 'putin', 'zelensky',
-        'china trade war', 'us china', 'trade war',
-        'nobel prize', 'olympic', 'fifa', 'premier league',
-        'wimbledon', 'french open', 'australian open',
-        'hollywood', 'oscar', 'emmy', 'grammy'
+        'white house', 'congress', 'senate', 
+        'president trump', 'president biden',
+        'federal reserve', 'wall street',
+        'ukraine war', 'russia invasion', 'putin', 'zelensky',
+        'premier league', 'wimbledon', 'french open',
+        'hollywood', 'oscar', 'emmy'
     ]
     
     # Count Singapore indicators
@@ -507,11 +430,21 @@ def is_singapore_relevant(article):
     non_singapore_score = sum(1 for indicator in non_singapore_indicators if indicator in content)
     
     # Article is Singapore-relevant if:
-    # 1. Has Singapore indicators and few/no non-Singapore indicators, OR
-    # 2. Has strong Singapore presence (multiple indicators)
-    if singapore_score >= 2:  # Strong Singapore presence
+    # 1. Has any Singapore indicators, OR
+    # 2. Has more Singapore than non-Singapore indicators, OR
+    # 3. From Singapore sources (less strict filtering for local sources)
+    
+    # Check if it's from a Singapore source
+    source_url = (article.get('url', '') or '').lower()
+    singapore_sources = ['straitstimes.com', 'channelnewsasia.com', 'todayonline.com', 
+                        'businesstimes.com.sg', 'mothership.sg', 'asiaone.com']
+    is_singapore_source = any(source in source_url for source in singapore_sources)
+    
+    if is_singapore_source and singapore_score >= 1:  # Singapore source + any Singapore mention
         return True
-    elif singapore_score >= 1 and non_singapore_score == 0:  # Some Singapore, no foreign indicators
+    elif singapore_score >= 2:  # Strong Singapore presence
+        return True
+    elif singapore_score >= 1 and non_singapore_score <= 1:  # Some Singapore, minimal foreign content
         return True
     elif singapore_score > non_singapore_score:  # More Singapore than foreign content
         return True
@@ -773,27 +706,17 @@ def main():
         print("About to fetch Singapore articles...", flush=True)
         logger.info("About to fetch Singapore articles")
         
-        # Fetch Singapore news with enhanced filtering
+        # Fetch Singapore news with simplified approach
         singapore_results = []
         
-        # Primary Singapore news collection (with keyword filtering)
+        # Primary Singapore news collection (from local sources)
         try:
             singapore_articles = fetch_singapore_news(date_start, date_end)
             singapore_results.extend(singapore_articles)
-            print(f"Primary Singapore fetch: {len(singapore_articles)} articles", flush=True)
+            print(f"Singapore local sources: {len(singapore_articles)} articles", flush=True)
         except Exception as e:
             logger.error(f"Error fetching Singapore news: {str(e)}")
             print(f"Error in Singapore fetch: {str(e)}", flush=True)
-        
-        # Additional international Singapore coverage (if primary didn't get enough)
-        if len(singapore_results) < 20:  # Only if we need more articles
-            try:
-                intl_singapore = fetch_singapore_international(date_start, date_end)
-                singapore_results.extend(intl_singapore)
-                print(f"Additional international Singapore: {len(intl_singapore)} articles", flush=True)
-            except Exception as e:
-                logger.error(f"Error fetching Singapore international coverage: {str(e)}")
-                print(f"Error in Singapore international coverage: {str(e)}", flush=True)
         
         # Remove duplicates and filter for Singapore relevance
         unique_singapore = []
