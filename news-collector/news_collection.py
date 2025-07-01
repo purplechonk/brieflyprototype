@@ -207,23 +207,123 @@ def fetch_geopolitics(date_start, date_end):
     return _fetch_topic(base_query, "Geopolitics", "International")
 
 def fetch_singapore_news(date_start, date_end):
-    """Fetch Singapore-related news."""
+    """Fetch Singapore-related news with enhanced local sources."""
     print(f"=== FETCHING SINGAPORE NEWS ===", flush=True)
     logger.info(f"Fetching Singapore news from {date_start} to {date_end}")
+    
+    # Enhanced query with more Singapore sources and categories
     base_query = {
+        "sourceUri": {"$or": [
+            "channelnewsasia.com", 
+            "straitstimes.com",
+            "todayonline.com",
+            "businesstimes.com.sg",
+            "mothership.sg",
+            "asiaone.com",
+            "8days.sg"
+        ]},
         "categoryUri": {"$or": [
             "dmoz/Regional/Asia/Singapore",
             "dmoz/Society/Government",
-            "dmoz/Society/Politics",
+            "dmoz/Society/Politics", 
             "dmoz/Business",
+            "dmoz/Society/Issues",
+            "dmoz/Health",
+            "dmoz/Science/Technology",
+            "dmoz/Sports",
             "dmoz/Society"
         ]},
         "lang": "eng",
-        "sourceUri": {"$or": ["channelnewsasia.com", "straitstimes.com"]},
         "dateStart": date_start,
         "dateEnd": date_end,
     }
     return _fetch_topic(base_query, "Singapore", "Local")
+
+def fetch_singapore_sources(date_start, date_end):
+    """Fetch news from major Singapore news sources."""
+    print(f"=== FETCHING SINGAPORE SOURCES ===", flush=True)
+    logger.info(f"Fetching Singapore sources from {date_start} to {date_end}")
+    base_query = {
+        "sourceUri": {"$or": [
+            "channelnewsasia.com", 
+            "straitstimes.com",
+            "todayonline.com",
+            "businesstimes.com.sg",
+            "mothership.sg",
+            "asiaone.com",
+            "8days.sg"
+        ]},
+        "lang": "eng",
+        "dateStart": date_start,
+        "dateEnd": date_end,
+        "categoryUri": {"$or": [
+            "dmoz/Regional/Asia/Singapore",
+            "dmoz/Society/Government",
+            "dmoz/Society/Politics", 
+            "dmoz/Business",
+            "dmoz/Society/Issues",
+            "dmoz/Health",
+            "dmoz/Science/Technology",
+            "dmoz/Sports"
+        ]}
+    }
+    return _fetch_topic(base_query, "Singapore", "Local")
+
+def fetch_singapore_international(date_start, date_end):
+    """Fetch Singapore news from international sources."""
+    print(f"=== FETCHING SINGAPORE INTERNATIONAL ===", flush=True)
+    logger.info(f"Fetching Singapore international coverage from {date_start} to {date_end}")
+    base_query = {
+        "keyword": {"$or": [
+            "Singapore",
+            "Singaporean", 
+            "Lee Hsien Loong",
+            "Lawrence Wong",
+            "PAP Singapore",
+            "MAS Singapore",
+            "Singapore government",
+            "Singapore economy",
+            "Singapore technology",
+            "Singapore startup",
+            "Marina Bay",
+            "Sentosa",
+            "Changi Airport",
+            "HDB Singapore",
+            "CPF Singapore",
+            "NUS Singapore",
+            "NTU Singapore",
+            "Singapore dollar",
+            "GIC Singapore",
+            "Temasek Holdings"
+        ]},
+        "sourceUri": {"$or": [
+            "reuters.com",
+            "bloomberg.com", 
+            "cnbc.com",
+            "bbc.com",
+            "cnn.com",
+            "ft.com",
+            "wsj.com",
+            "economist.com",
+            "scmp.com",
+            "nikkei.com",
+            "techcrunch.com",
+            "venturebeat.com",
+            "asia.nikkei.com",
+            "aljazeera.com"
+        ]},
+        "lang": "eng",
+        "dateStart": date_start,
+        "dateEnd": date_end,
+        "categoryUri": {"$or": [
+            "dmoz/Regional/Asia",
+            "dmoz/Business",
+            "dmoz/Science/Technology",
+            "dmoz/Society/Politics",
+            "dmoz/Society/Government"
+        ]}
+    }
+    return _fetch_topic(base_query, "Singapore", "International")
 
 def get_connection(retries=3, delay=2):
     """Get a database connection with retry logic"""
@@ -479,9 +579,49 @@ def main():
         
         print("About to fetch Singapore articles...", flush=True)
         logger.info("About to fetch Singapore articles")
-        singapore_results = fetch_singapore_news(date_start, date_end)
-        print(f"Singapore fetch completed with {len(singapore_results)} articles", flush=True)
-        logger.info(f"Singapore fetch completed with {len(singapore_results)} articles")
+        
+        # Fetch Singapore news from multiple sources for better coverage
+        singapore_results = []
+        
+        # 1. Enhanced Singapore news (combines local sources + international coverage)
+        try:
+            enhanced_singapore = fetch_singapore_news(date_start, date_end)
+            singapore_results.extend(enhanced_singapore)
+            print(f"Enhanced Singapore fetch: {len(enhanced_singapore)} articles", flush=True)
+        except Exception as e:
+            logger.error(f"Error fetching enhanced Singapore news: {str(e)}")
+            print(f"Error in enhanced Singapore fetch: {str(e)}", flush=True)
+        
+        # 2. Singapore local sources (backup/additional coverage)
+        try:
+            local_singapore = fetch_singapore_sources(date_start, date_end)
+            singapore_results.extend(local_singapore)
+            print(f"Singapore local sources: {len(local_singapore)} articles", flush=True)
+        except Exception as e:
+            logger.error(f"Error fetching Singapore local sources: {str(e)}")
+            print(f"Error in Singapore local sources: {str(e)}", flush=True)
+        
+        # 3. International Singapore coverage
+        try:
+            intl_singapore = fetch_singapore_international(date_start, date_end)
+            singapore_results.extend(intl_singapore)
+            print(f"Singapore international coverage: {len(intl_singapore)} articles", flush=True)
+        except Exception as e:
+            logger.error(f"Error fetching Singapore international coverage: {str(e)}")
+            print(f"Error in Singapore international coverage: {str(e)}", flush=True)
+        
+        # Remove duplicates from Singapore results
+        unique_singapore = []
+        seen_singapore_uris = set()
+        for article in singapore_results:
+            if isinstance(article, dict) and article.get('uri'):
+                if article['uri'] not in seen_singapore_uris:
+                    seen_singapore_uris.add(article['uri'])
+                    unique_singapore.append(article)
+        
+        singapore_results = unique_singapore
+        print(f"Total unique Singapore articles: {len(singapore_results)}", flush=True)
+        logger.info(f"Singapore fetch completed with {len(singapore_results)} unique articles")
         
         total_articles = len(geopolitics_results) + len(singapore_results)
         print(f"=== COMPLETED NEWS COLLECTION - Total articles: {total_articles} ===", flush=True)

@@ -349,7 +349,8 @@ async def send_article_for_labeling(update: Update, context: ContextTypes.DEFAUL
         [InlineKeyboardButton("📈 Positive", callback_data="positive")],
         [InlineKeyboardButton("📉 Negative", callback_data="negative")],
         [InlineKeyboardButton("😐 Neutral", callback_data="neutral")],
-        [InlineKeyboardButton("⏭️ Skip", callback_data="skip")]
+        [InlineKeyboardButton("⏭️ Skip", callback_data="skip")],
+        [InlineKeyboardButton("🔄 Change Category", callback_data="change_category")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -379,6 +380,21 @@ async def handle_label(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     article_uri = context.user_data.get('current_article_uri')
     current_index = context.user_data.get('current_index', 0)
     articles = context.user_data.get('articles', [])
+    
+    # Handle category change request
+    if label == "change_category":
+        # Show category selection menu again
+        welcome_msg = "📰 Please choose a news category:"
+        
+        # Create category selection keyboard
+        keyboard = [
+            [InlineKeyboardButton("🌍 Geopolitics News", callback_data="category_geopolitics")],
+            [InlineKeyboardButton("🇸🇬 Singapore News", callback_data="category_singapore")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(welcome_msg, reply_markup=reply_markup)
+        return WAITING_FOR_CATEGORY
     
     if label != "skip":
         # Save user's label for this article
