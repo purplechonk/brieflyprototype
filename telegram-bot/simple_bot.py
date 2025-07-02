@@ -355,6 +355,7 @@ async def send_article_for_labeling(update: Update, context: ContextTypes.DEFAUL
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     # Format message with improved styling
+    message = f"📰 **Article {current_index + 1}/{len(articles)}**\n\n"
     message += f"**{title}**\n\n"
     message += f"🏷️ **Category:** {category}\n\n"
     message += f"📅 **Published:** {published_date.strftime('%Y-%m-%d') if published_date else 'Unknown'}\n\n"
