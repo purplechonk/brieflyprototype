@@ -356,11 +356,11 @@ async def send_article_for_labeling(update: Update, context: ContextTypes.DEFAUL
     
     # Format message
     message = f"**Article {current_index + 1}/{len(articles)}**\n\n"
-    message += f"**Title:** {title}\n\n"
+    message += f"{title}\n\n"
     message += f"**Category:** {category}\n\n"
-    message += f"**Published:** {published_date.strftime('%Y-%m-%d %H:%M') if published_date else 'Unknown'}\n\n"
-    message += f"**Content:** {body[:400]}{'...' if len(body) > 400 else ''}\n\n"
-    message += f"**URL:** {url}\n\n"
+    message += f"{published_date.strftime('%Y-%m-%d') if published_date else 'Unknown'}\n\n"
+    message += f"{body[:400]}{'...' if len(body) > 400 else ''}\n\n"
+    message += f"**Read More:** {url}\n\n"
     message += "Please select a label for this article:"
     
     if update.message:
