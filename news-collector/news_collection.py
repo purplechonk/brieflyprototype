@@ -207,22 +207,19 @@ def fetch_geopolitics(date_start, date_end):
     return _fetch_topic(base_query, "Geopolitics", "International")
 
 def fetch_singapore_news(date_start, date_end):
-    """Fetch Singapore-focused news with content filtering."""
-    print(f"=== FETCHING SINGAPORE NEWS ===", flush=True)
-    logger.info(f"Fetching Singapore news from {date_start} to {date_end}")
+    """Fetch Singapore news from specific Singapore sections of news sites."""
+    print(f"=== FETCHING SINGAPORE SECTION NEWS ===", flush=True)
+    logger.info(f"Fetching Singapore section news from {date_start} to {date_end}")
     
-    # Query for Singapore-focused content from local sources
+    # Target specific Singapore sections/URLs instead of entire domains
     base_query = {
+        # Use URL patterns to target Singapore-specific sections
         "sourceUri": {"$or": [
-            "channelnewsasia.com", 
-            "straitstimes.com",
-            "todayonline.com",
-            "businesstimes.com.sg",
-            "mothership.sg",
-            "asiaone.com",
-            "8days.sg"
+            "channelnewsasia.com/singapore",
+            "straitstimes.com/singapore", 
+            "todayonline.com/singapore",
+            "businesstimes.com.sg/singapore"
         ]},
-
         "categoryUri": {"$or": [
             "dmoz/Regional/Asia/Singapore",
             "dmoz/Society/Government",
@@ -240,156 +237,7 @@ def fetch_singapore_news(date_start, date_end):
     }
     return _fetch_topic(base_query, "Singapore", "Local")
 
-def fetch_singapore_sources(date_start, date_end):
-    """Fetch Singapore-specific content from local news sources."""
-    print(f"=== FETCHING SINGAPORE SOURCES ===", flush=True)
-    logger.info(f"Fetching Singapore sources from {date_start} to {date_end}")
-    base_query = {
-        "sourceUri": {"$or": [
-            "channelnewsasia.com", 
-            "straitstimes.com",
-            "todayonline.com",
-            "businesstimes.com.sg",
-            "mothership.sg",
-            "asiaone.com",
-            "8days.sg"
-        ]},
-        # Focus on Singapore domestic content (max 15 keywords)
-        "keyword": {"$or": [
-            "Singapore",
-            "Singaporean",
-            "HDB",
-            "CPF", 
-            "MRT",
-            "Singapore government",
-            "Parliament Singapore",
-            "Ministry",
-            "town council",
-            "National Day",
-            "CNY",
-            "Deepavali",
-            "Hari Raya",
-            "Vesak Day"
-        ]},
-        "categoryUri": {"$or": [
-            "dmoz/Regional/Asia/Singapore",
-            "dmoz/Society/Government",
-            "dmoz/Society/Politics", 
-            "dmoz/Business",
-            "dmoz/Society/Issues",
-            "dmoz/Health",
-            "dmoz/Science/Technology",
-            "dmoz/Sports"
-        ]},
-        "lang": "eng",
-        "dateStart": date_start,
-        "dateEnd": date_end,
-    }
-    return _fetch_topic(base_query, "Singapore", "Local")
 
-def fetch_singapore_international(date_start, date_end):
-    """Fetch Singapore news from international sources."""
-    print(f"=== FETCHING SINGAPORE INTERNATIONAL ===", flush=True)
-    logger.info(f"Fetching Singapore international coverage from {date_start} to {date_end}")
-    base_query = {
-        "keyword": {"$or": [
-            "Singapore",
-            "Singaporean", 
-            "Lee Hsien Loong",
-            "Lawrence Wong",
-            "Singapore government",
-            "Singapore economy",
-            "Marina Bay",
-            "Changi Airport",
-            "Singapore dollar",
-            "Temasek Holdings",
-            "DBS Bank",
-            "OCBC",
-            "UOB",
-            "GIC Singapore",
-            "MAS Singapore"
-        ]},
-        "sourceUri": {"$or": [
-            "reuters.com",
-            "bloomberg.com", 
-            "cnbc.com",
-            "bbc.com",
-            "cnn.com",
-            "ft.com",
-            "wsj.com",
-            "economist.com",
-            "scmp.com",
-            "nikkei.com",
-            "techcrunch.com",
-            "venturebeat.com",
-            "asia.nikkei.com",
-            "aljazeera.com"
-        ]},
-        "lang": "eng",
-        "dateStart": date_start,
-        "dateEnd": date_end,
-        "categoryUri": {"$or": [
-            "dmoz/Regional/Asia",
-            "dmoz/Business",
-            "dmoz/Science/Technology",
-            "dmoz/Society/Politics",
-            "dmoz/Society/Government"
-        ]}
-    }
-    return _fetch_topic(base_query, "Singapore", "International")
-
-def fetch_singapore_location_based(date_start, date_end):
-    """Fetch Singapore news using location and Singapore-specific terms."""
-    print(f"=== FETCHING SINGAPORE LOCATION-BASED ===", flush=True)
-    logger.info(f"Fetching Singapore location-based news from {date_start} to {date_end}")
-    base_query = {
-        # Use location URI for Singapore
-        "locationUri": {"$or": [
-            "http://en.wikipedia.org/wiki/Singapore"
-        ]},
-        # Also include specific Singapore districts and areas
-        "keyword": {"$or": [
-            "Singapore",
-            "Marina Bay Sands",
-            "Gardens by the Bay",
-            "Merlion",
-            "Singapore Flyer",
-            "Universal Studios Singapore",
-            "Resorts World Sentosa",
-            "Clarke Quay",
-            "Boat Quay",
-            "Little India Singapore",
-            "Chinatown Singapore",
-            "Bugis",
-            "Tanjong Pagar",
-            "City Hall Singapore",
-            "Dhoby Ghaut",
-            "Somerset Singapore",
-            "Newton Singapore",
-            "Bishan",
-            "Ang Mo Kio",
-            "Woodlands Singapore",
-            "Tampines",
-            "Jurong East",
-            "Clementi",
-            "Hougang",
-            "Bedok",
-            "Punggol",
-            "Sengkang"
-        ]},
-        "categoryUri": {"$or": [
-            "dmoz/Regional/Asia/Singapore",
-            "dmoz/Business",
-            "dmoz/Science/Technology",
-            "dmoz/Society",
-            "dmoz/Society/Government",
-            "dmoz/Society/Politics"
-        ]},
-        "lang": "eng",
-        "dateStart": date_start,
-        "dateEnd": date_end,
-    }
-    return _fetch_topic(base_query, "Singapore", "Location")
 
 def is_singapore_relevant(article):
     """Check if an article is actually Singapore-relevant based on content."""
@@ -706,37 +554,29 @@ def main():
         print("About to fetch Singapore articles...", flush=True)
         logger.info("About to fetch Singapore articles")
         
-        # Fetch Singapore news with simplified approach
+        # Fetch Singapore news from targeted URL sections
         singapore_results = []
         
-        # Primary Singapore news collection (from local sources)
         try:
             singapore_articles = fetch_singapore_news(date_start, date_end)
             singapore_results.extend(singapore_articles)
-            print(f"Singapore local sources: {len(singapore_articles)} articles", flush=True)
+            print(f"Singapore section articles: {len(singapore_articles)}", flush=True)
+            logger.info(f"Singapore fetch completed with {len(singapore_articles)} articles")
         except Exception as e:
-            logger.error(f"Error fetching Singapore news: {str(e)}")
-            print(f"Error in Singapore fetch: {str(e)}", flush=True)
+            logger.error(f"Error fetching Singapore section news: {str(e)}")
+            print(f"Error in Singapore section fetch: {str(e)}", flush=True)
         
-        # Remove duplicates and filter for Singapore relevance
+        # Simple deduplication
         unique_singapore = []
         seen_singapore_uris = set()
-        filtered_out = 0
         
         for article in singapore_results:
             if isinstance(article, dict) and article.get('uri'):
                 if article['uri'] not in seen_singapore_uris:
                     seen_singapore_uris.add(article['uri'])
-                    # Apply content filtering
-                    if is_singapore_relevant(article):
-                        unique_singapore.append(article)
-                    else:
-                        filtered_out += 1
-                        print(f"Filtered out non-Singapore article: {article.get('title', 'NO_TITLE')[:50]}...", flush=True)
+                    unique_singapore.append(article)
         
         singapore_results = unique_singapore
-        print(f"Singapore articles: {len(singapore_results)} relevant, {filtered_out} filtered out", flush=True)
-        logger.info(f"Singapore fetch completed with {len(singapore_results)} relevant articles ({filtered_out} filtered out)")
         
         total_articles = len(geopolitics_results) + len(singapore_results)
         print(f"=== COMPLETED NEWS COLLECTION - Total articles: {total_articles} ===", flush=True)
