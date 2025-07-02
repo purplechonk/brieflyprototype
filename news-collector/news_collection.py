@@ -213,14 +213,10 @@ def fetch_singapore_news(date_start, date_end):
     
     # Target specific Singapore sections/URLs - no category restrictions needed
     base_query = {
-        # Use URL patterns to target Singapore-specific sections
-        "sourceUri": {"$or": [
-            "channelnewsasia.com/singapore",
-            "straitstimes.com/singapore", 
-            "todayonline.com/singapore",
-            "businesstimes.com.sg/singapore"
-        ]},
+        "keyword": {"$or": ["Singapore"]},
+        "locationUri": "http://en.wikipedia.org/wiki/Singapore",  # Add location constraint
         "lang": "eng",
+        "sourceUri": {"$or": ["channelnewsasia.com", "straitstimes.com"]},
         "dateStart": date_start,
         "dateEnd": date_end,
     }
