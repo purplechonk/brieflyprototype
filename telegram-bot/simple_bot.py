@@ -354,14 +354,13 @@ async def send_article_for_labeling(update: Update, context: ContextTypes.DEFAUL
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Format message
-    message = f"**Article {current_index + 1}/{len(articles)}**\n\n"
-    message += f"{title}\n\n"
-    message += f"**Category:** {category}\n\n"
-    message += f"{published_date.strftime('%Y-%m-%d') if published_date else 'Unknown'}\n\n"
-    message += f"{body[:400]}{'...' if len(body) > 400 else ''}\n\n"
-    message += f"**Read More:** {url}\n\n"
-    message += "Please select a label for this article:"
+    # Format message with improved styling
+    message += f"**{title}**\n\n"
+    message += f"🏷️ **Category:** {category}\n\n"
+    message += f"📅 **Published:** {published_date.strftime('%Y-%m-%d') if published_date else 'Unknown'}\n\n"
+    message += f"📖 **Content:**\n{body[:400]}{'...' if len(body) > 400 else ''}\n\n"
+    message += f"🔗 [Read Full Article]({url})\n\n"
+    message += "👆 **Please select a label for this article:**"
     
     if update.message:
         await update.message.reply_text(message, reply_markup=reply_markup, parse_mode='Markdown')
