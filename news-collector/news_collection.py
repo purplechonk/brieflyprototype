@@ -211,7 +211,7 @@ def fetch_singapore_news(date_start, date_end):
     print(f"=== FETCHING SINGAPORE SECTION NEWS ===", flush=True)
     logger.info(f"Fetching Singapore section news from {date_start} to {date_end}")
     
-    # Target specific Singapore sections/URLs instead of entire domains
+    # Target specific Singapore sections/URLs - no category restrictions needed
     base_query = {
         # Use URL patterns to target Singapore-specific sections
         "sourceUri": {"$or": [
@@ -219,17 +219,6 @@ def fetch_singapore_news(date_start, date_end):
             "straitstimes.com/singapore", 
             "todayonline.com/singapore",
             "businesstimes.com.sg/singapore"
-        ]},
-        "categoryUri": {"$or": [
-            "dmoz/Regional/Asia/Singapore",
-            "dmoz/Society/Government",
-            "dmoz/Society/Politics", 
-            "dmoz/Business",
-            "dmoz/Society/Issues",
-            "dmoz/Health",
-            "dmoz/Science/Technology",
-            "dmoz/Sports",
-            "dmoz/Society"
         ]},
         "lang": "eng",
         "dateStart": date_start,
