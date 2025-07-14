@@ -10,7 +10,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
-from openai import OpenAI
+import requests
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -27,9 +27,6 @@ PORT = int(os.getenv("PORT", 8080))
 print(f"Bot token present: {bool(TOKEN)}", flush=True)
 print(f"Database URL present: {bool(DATABASE_URL)}", flush=True)
 print(f"OpenAI API key present: {bool(OPENAI_API_KEY)}", flush=True)
-
-# Initialize OpenAI client
-openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 # Bot conversation states
 WAITING_FOR_CATEGORY = 1
@@ -245,8 +242,8 @@ def get_recent_news_context(category=None, limit=10):
         return []
 
 def generate_ai_response(user_question, news_context, category=None):
-    """Generate AI response based on news context"""
-    if not openai_client:
+    """Generate AI response based on news context using HTTP requests"""
+    if not OPENAI_API_KEY:
         return "❌ AI service is not available. Please contact the administrator."
     
     try:
@@ -271,19 +268,39 @@ User Question: {user_question}
 
 Please provide a helpful answer based on the news content above. If the articles don't contain relevant information, please say so politely."""
 
-        # Generate response
-        response = openai_client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
+        # Make HTTP request to OpenAI API
+        headers = {
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        data = {
+            "model": "gpt-3.5-turbo",
+            "messages": [
                 {"role": "system", "content": "You are a helpful news analyst assistant."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=500,
-            temperature=0.7
+            "max_tokens": 500,
+            "temperature": 0.7
+        }
+        
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            json=data,
+            timeout=30
         )
         
-        return response.choices[0].message.content.strip()
+        if response.status_code == 200:
+            response_data = response.json()
+            return response_data['choices'][0]['message']['content'].strip()
+        else:
+            logger.error(f"OpenAI API error: {response.status_code} - {response.text}")
+            return f"❌ Error from AI service: {response.status_code}"
     
+    except requests.exceptions.RequestException as e:
+        logger.error(f"HTTP request error: {str(e)}")
+        return f"❌ Network error: {str(e)}"
     except Exception as e:
         logger.error(f"Error generating AI response: {str(e)}")
         return f"❌ Error generating response: {str(e)}"
