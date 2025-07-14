@@ -6,10 +6,11 @@ import threading
 import queue
 import json
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, ConversationHandler
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
+from openai import OpenAI
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -20,14 +21,20 @@ load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Will be set by Cloud Run
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PORT = int(os.getenv("PORT", 8080))
 
 print(f"Bot token present: {bool(TOKEN)}", flush=True)
 print(f"Database URL present: {bool(DATABASE_URL)}", flush=True)
+print(f"OpenAI API key present: {bool(OPENAI_API_KEY)}", flush=True)
+
+# Initialize OpenAI client
+openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 # Bot conversation states
 WAITING_FOR_CATEGORY = 1
 WAITING_FOR_LABEL = 2
+WAITING_FOR_QUESTION = 3
 
 # Global application instance
 application = None
@@ -194,6 +201,92 @@ def get_user_labeling_stats(user_id):
     except Exception as e:
         logger.error(f"Error getting user stats: {str(e)}")
         return None
+
+def get_recent_news_context(category=None, limit=10):
+    """Get recent news articles for AI context"""
+    conn = get_db_connection()
+    if not conn:
+        return []
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Build category filter
+        category_filter = ""
+        params = []
+        
+        if category:
+            if category.lower() == 'geopolitics':
+                category_filter = "WHERE LOWER(category) LIKE %s"
+                params.append('%geopolitics%')
+            elif category.lower() == 'singapore':
+                category_filter = "WHERE LOWER(category) LIKE %s"
+                params.append('%singapore%')
+        
+        # Get recent articles
+        query = f"""
+            SELECT title, body, category, published_date, url
+            FROM articles
+            {category_filter}
+            ORDER BY published_date DESC
+            LIMIT %s
+        """
+        params.append(limit)
+        
+        cursor.execute(query, params)
+        articles = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return articles
+    except Exception as e:
+        logger.error(f"Error getting news context: {str(e)}")
+        return []
+
+def generate_ai_response(user_question, news_context, category=None):
+    """Generate AI response based on news context"""
+    if not openai_client:
+        return "❌ AI service is not available. Please contact the administrator."
+    
+    try:
+        # Format news context for AI
+        context_text = ""
+        if news_context:
+            context_text = "\n\n".join([
+                f"**{article[0]}**\n{article[1][:500]}...\nCategory: {article[2]}\nDate: {article[3]}\nURL: {article[4]}"
+                for article in news_context[:5]  # Use only top 5 articles
+            ])
+        else:
+            return "❌ No recent news articles available to answer your question."
+        
+        # Create prompt
+        category_context = f" about {category}" if category else ""
+        prompt = f"""You are a helpful news analyst. Based on the following recent news articles{category_context}, please answer the user's question concisely and informatively.
+
+Recent News Articles:
+{context_text}
+
+User Question: {user_question}
+
+Please provide a helpful answer based on the news content above. If the articles don't contain relevant information, please say so politely."""
+
+        # Generate response
+        response = openai_client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful news analyst assistant."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=500,
+            temperature=0.7
+        )
+        
+        return response.choices[0].message.content.strip()
+    
+    except Exception as e:
+        logger.error(f"Error generating AI response: {str(e)}")
+        return f"❌ Error generating response: {str(e)}"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start command handler"""
@@ -470,6 +563,126 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Labeling session cancelled.")
     return ConversationHandler.END
 
+async def ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask command - start Q&A session"""
+    try:
+        user = update.effective_user
+        user_id = user.id
+        logger.info(f"User {user.first_name} (ID: {user_id}) started Q&A session")
+        
+        # Store user info in context
+        context.user_data['user_id'] = user_id
+        context.user_data['ask_category'] = None  # No category filter by default
+        
+        # Send welcome message for Q&A
+        welcome_msg = "🤔 **Ask me about the news!** 📰\n\n"
+        welcome_msg += "You can ask questions like:\n"
+        welcome_msg += "• What are the main headlines today?\n"
+        welcome_msg += "• What economic issues are trending?\n"
+        welcome_msg += "• Summarize recent geopolitical developments\n"
+        welcome_msg += "• What's happening in Singapore?\n\n"
+        welcome_msg += "**Type your question below:**"
+        
+        await update.message.reply_text(welcome_msg, parse_mode='Markdown')
+        
+        return WAITING_FOR_QUESTION
+        
+    except Exception as e:
+        logger.error(f"Error in ask command: {str(e)}")
+        await update.message.reply_text("❌ Sorry, something went wrong. Please try again.")
+        return ConversationHandler.END
+
+async def ask_geopolitics_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask command for geopolitics news specifically"""
+    try:
+        user = update.effective_user
+        user_id = user.id
+        logger.info(f"User {user.first_name} (ID: {user_id}) started geopolitics Q&A session")
+        
+        # Store user info in context
+        context.user_data['user_id'] = user_id
+        context.user_data['ask_category'] = 'geopolitics'
+        
+        # Send welcome message for geopolitics Q&A
+        welcome_msg = "🌍 **Ask me about geopolitics news!** 📰\n\n"
+        welcome_msg += "You can ask questions like:\n"
+        welcome_msg += "• What are the main geopolitical tensions today?\n"
+        welcome_msg += "• What's happening in international relations?\n"
+        welcome_msg += "• Summarize recent conflicts or diplomatic developments\n\n"
+        welcome_msg += "**Type your question below:**"
+        
+        await update.message.reply_text(welcome_msg, parse_mode='Markdown')
+        
+        return WAITING_FOR_QUESTION
+        
+    except Exception as e:
+        logger.error(f"Error in ask_geopolitics command: {str(e)}")
+        await update.message.reply_text("❌ Sorry, something went wrong. Please try again.")
+        return ConversationHandler.END
+
+async def ask_singapore_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Ask command for Singapore news specifically"""
+    try:
+        user = update.effective_user
+        user_id = user.id
+        logger.info(f"User {user.first_name} (ID: {user_id}) started Singapore Q&A session")
+        
+        # Store user info in context
+        context.user_data['user_id'] = user_id
+        context.user_data['ask_category'] = 'singapore'
+        
+        # Send welcome message for Singapore Q&A
+        welcome_msg = "🇸🇬 **Ask me about Singapore news!** 📰\n\n"
+        welcome_msg += "You can ask questions like:\n"
+        welcome_msg += "• What are the key Singapore headlines today?\n"
+        welcome_msg += "• What policies are being discussed?\n"
+        welcome_msg += "• Summarize recent Singapore developments\n\n"
+        welcome_msg += "**Type your question below:**"
+        
+        await update.message.reply_text(welcome_msg, parse_mode='Markdown')
+        
+        return WAITING_FOR_QUESTION
+        
+    except Exception as e:
+        logger.error(f"Error in ask_singapore command: {str(e)}")
+        await update.message.reply_text("❌ Sorry, something went wrong. Please try again.")
+        return ConversationHandler.END
+
+async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle user's question and generate AI response"""
+    try:
+        user_question = update.message.text
+        user_id = context.user_data.get('user_id')
+        category = context.user_data.get('ask_category')
+        
+        logger.info(f"User {user_id} asked: {user_question}")
+        
+        # Send "thinking" message
+        thinking_msg = await update.message.reply_text("🤔 Let me analyze the recent news to answer your question...")
+        
+        # Get news context
+        news_context = get_recent_news_context(category=category, limit=10)
+        
+        # Generate AI response
+        ai_response = generate_ai_response(user_question, news_context, category)
+        
+        # Delete thinking message and send response
+        await thinking_msg.delete()
+        
+        # Format response
+        category_emoji = {"geopolitics": "🌍", "singapore": "🇸🇬"}.get(category, "📰")
+        response_msg = f"{category_emoji} **Your Answer:**\n\n{ai_response}\n\n"
+        response_msg += "💬 Ask another question or use /cancel to exit."
+        
+        await update.message.reply_text(response_msg, parse_mode='Markdown')
+        
+        return WAITING_FOR_QUESTION
+        
+    except Exception as e:
+        logger.error(f"Error handling question: {str(e)}")
+        await update.message.reply_text("❌ Sorry, I couldn't process your question. Please try again.")
+        return WAITING_FOR_QUESTION
+
 async def debug_database_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Debug command to inspect database structure and data"""
     user = update.effective_user
@@ -664,7 +877,7 @@ def main():
         application = Application.builder().token(TOKEN).build()
         print("✅ Application created", flush=True)
         
-        # Create conversation handler
+        # Create conversation handler for labeling
         conv_handler = ConversationHandler(
             entry_points=[CommandHandler('start', start)],
             states={
@@ -674,8 +887,22 @@ def main():
             fallbacks=[CommandHandler('cancel', cancel)]
         )
         
+        # Create conversation handler for Q&A
+        qa_conv_handler = ConversationHandler(
+            entry_points=[
+                CommandHandler('ask', ask_command),
+                CommandHandler('ask_geopolitics', ask_geopolitics_command),
+                CommandHandler('ask_singapore', ask_singapore_command)
+            ],
+            states={
+                WAITING_FOR_QUESTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_question)]
+            },
+            fallbacks=[CommandHandler('cancel', cancel)]
+        )
+        
         # Add handlers
         application.add_handler(conv_handler)
+        application.add_handler(qa_conv_handler)
         application.add_handler(CommandHandler('stats', stats_command))
         application.add_handler(CommandHandler('debug', debug_database_command))
         application.add_error_handler(error_handler)
