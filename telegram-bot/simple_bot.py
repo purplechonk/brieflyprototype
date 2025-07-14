@@ -217,8 +217,8 @@ def get_recent_news_context(category=None, limit=10):
                 category_filter = "WHERE LOWER(category) LIKE %s"
                 params.append('%geopolitics%')
             elif category.lower() == 'singapore':
-                category_filter = "WHERE LOWER(category) LIKE %s"
-                params.append('%singapore%')
+                category_filter = "WHERE (LOWER(category) LIKE %s OR LOWER(title) LIKE %s OR LOWER(body) LIKE %s)"
+                params.extend(['%singapore%', '%singapore%', '%singapore%'])
         
         # Get recent articles
         query = f"""
@@ -680,6 +680,11 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Get news context
         news_context = get_recent_news_context(category=category, limit=10)
         
+        # Debug: Log what articles we found
+        logger.info(f"Found {len(news_context)} articles for category '{category}'")
+        if news_context:
+            logger.info(f"Sample article titles: {[article[0][:50] for article in news_context[:3]]}")
+        
         # Generate AI response
         ai_response = generate_ai_response(user_question, news_context, category)
         
@@ -699,6 +704,48 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logger.error(f"Error handling question: {str(e)}")
         await update.message.reply_text("❌ Sorry, I couldn't process your question. Please try again.")
         return WAITING_FOR_QUESTION
+
+async def show_recent_articles_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show recent articles in database for debugging"""
+    try:
+        # Get recent articles for all categories
+        all_articles = get_recent_news_context(category=None, limit=10)
+        singapore_articles = get_recent_news_context(category='singapore', limit=5)
+        geopolitics_articles = get_recent_news_context(category='geopolitics', limit=5)
+        
+        message = "📰 **Recent Articles in Database:**\n\n"
+        message += f"📊 **Total recent articles:** {len(all_articles)}\n"
+        message += f"🇸🇬 **Singapore articles:** {len(singapore_articles)}\n"
+        message += f"🌍 **Geopolitics articles:** {len(geopolitics_articles)}\n\n"
+        
+        if singapore_articles:
+            message += "🇸🇬 **Singapore Articles:**\n"
+            for i, article in enumerate(singapore_articles[:3], 1):
+                title, body, category, pub_date, url = article
+                message += f"{i}. {title[:60]}...\n"
+                message += f"   Category: {category}\n"
+                message += f"   Date: {pub_date}\n\n"
+        else:
+            message += "🇸🇬 **No Singapore articles found**\n\n"
+        
+        if geopolitics_articles:
+            message += "🌍 **Geopolitics Articles:**\n"
+            for i, article in enumerate(geopolitics_articles[:3], 1):
+                title, body, category, pub_date, url = article
+                message += f"{i}. {title[:60]}...\n"
+                message += f"   Category: {category}\n"
+                message += f"   Date: {pub_date}\n\n"
+        else:
+            message += "🌍 **No Geopolitics articles found**\n\n"
+        
+        if len(message) > 4000:  # Telegram message limit
+            message = message[:4000] + "...\n\n(Message truncated due to length)"
+        
+        await update.message.reply_text(message, parse_mode='Markdown')
+        
+    except Exception as e:
+        logger.error(f"Error in show_recent_articles_command: {str(e)}")
+        await update.message.reply_text(f"❌ Error retrieving articles: {str(e)}")
 
 async def debug_database_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Debug command to inspect database structure and data"""
@@ -722,7 +769,7 @@ async def debug_database_command(update: Update, context: ContextTypes.DEFAULT_T
         
         # Check user_interactions table structure and constraints
         cursor.execute("""
-            SELECT conname, consrc 
+            SELECT conname, pg_get_constraintdef(pg_constraint.oid) as constraint_def
             FROM pg_constraint 
             JOIN pg_class ON conrelid = pg_class.oid 
             WHERE relname = 'user_interactions' AND contype = 'c';
@@ -731,8 +778,8 @@ async def debug_database_command(update: Update, context: ContextTypes.DEFAULT_T
         
         if constraints:
             constraint_text = "🔧 **USER_INTERACTIONS CONSTRAINTS:**\n\n"
-            for name, src in constraints:
-                constraint_text += f"• `{name}`: {src}\n"
+            for name, constraint_def in constraints:
+                constraint_text += f"• `{name}`: {constraint_def}\n"
             await update.message.reply_text(constraint_text, parse_mode='Markdown')
         
         # Check existing interaction_type values in the table
@@ -922,6 +969,7 @@ def main():
         application.add_handler(qa_conv_handler)
         application.add_handler(CommandHandler('stats', stats_command))
         application.add_handler(CommandHandler('debug', debug_database_command))
+        application.add_handler(CommandHandler('articles', show_recent_articles_command))
         application.add_error_handler(error_handler)
         print("✅ Handlers added", flush=True)
         
