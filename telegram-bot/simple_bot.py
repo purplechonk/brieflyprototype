@@ -266,7 +266,7 @@ Recent News Articles:
 
 User Question: {user_question}
 
-Please provide a helpful answer based on the news content above. If the articles don't contain relevant information, please say so politely."""
+Please provide a helpful answer based on the news content above. Include information from ANY of the articles that relate to the question - this includes current events, lifestyle topics, business news, social issues, infrastructure developments, and other newsworthy content. If no articles are relevant to the specific question, then say so politely."""
 
         # Make HTTP request to OpenAI API
         headers = {
