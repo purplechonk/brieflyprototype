@@ -384,7 +384,7 @@ async def handle_category_selection(update: Update, context: ContextTypes.DEFAUL
     
     print(f"🔍 Articles stored in context, calling send_article_for_labeling", flush=True)
     
-    # Update message to show selected category
+    # Update message to show selected category3
     await query.edit_message_text(
         f"✅ Selected: {category_display}\n\n"
         f"🗞️ Ready to explore the latest news? Let's dive into today's stories!\n"
