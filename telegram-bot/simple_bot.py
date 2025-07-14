@@ -32,6 +32,7 @@ print(f"OpenAI API key present: {bool(OPENAI_API_KEY)}", flush=True)
 WAITING_FOR_CATEGORY = 1
 WAITING_FOR_LABEL = 2
 WAITING_FOR_QUESTION = 3
+WAITING_FOR_ARTICLE_QUESTION = 4
 
 # Global application instance
 application = None
@@ -305,6 +306,107 @@ Please provide a helpful answer based on the news content above. Include informa
         logger.error(f"Error generating AI response: {str(e)}")
         return f"❌ Error generating response: {str(e)}"
 
+def generate_general_ai_response(user_question):
+    """Generate AI response for general questions without database context"""
+    if not OPENAI_API_KEY:
+        return "❌ AI service is not available. Please contact the administrator."
+    
+    try:
+        prompt = f"""You are a helpful assistant. Please answer the user's question using your general knowledge. Provide a concise and informative response.
+
+User Question: {user_question}
+
+Please provide a helpful answer based on your knowledge."""
+
+        # Make HTTP request to OpenAI API
+        headers = {
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        data = {
+            "model": "gpt-3.5-turbo",
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant that provides informative and accurate answers to user questions."},
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 500,
+            "temperature": 0.7
+        }
+        
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            json=data,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            response_data = response.json()
+            return response_data['choices'][0]['message']['content'].strip()
+        else:
+            logger.error(f"OpenAI API error: {response.status_code} - {response.text}")
+            return f"❌ Error from AI service: {response.status_code}"
+    
+    except requests.exceptions.RequestException as e:
+        logger.error(f"HTTP request error: {str(e)}")
+        return f"❌ Network error: {str(e)}"
+    except Exception as e:
+        logger.error(f"Error generating AI response: {str(e)}")
+        return f"❌ Error generating response: {str(e)}"
+
+def generate_article_ai_response(user_question, article_content):
+    """Generate AI response for questions about a specific article"""
+    if not OPENAI_API_KEY:
+        return "❌ AI service is not available. Please contact the administrator."
+    
+    try:
+        prompt = f"""You are a helpful news analyst. Based on the following news article, please answer the user's question about it.
+
+News Article:
+{article_content}
+
+User Question: {user_question}
+
+Please provide a helpful answer based on the article content above."""
+
+        # Make HTTP request to OpenAI API
+        headers = {
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        data = {
+            "model": "gpt-3.5-turbo",
+            "messages": [
+                {"role": "system", "content": "You are a helpful news analyst assistant."},
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 500,
+            "temperature": 0.7
+        }
+        
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            json=data,
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            response_data = response.json()
+            return response_data['choices'][0]['message']['content'].strip()
+        else:
+            logger.error(f"OpenAI API error: {response.status_code} - {response.text}")
+            return f"❌ Error from AI service: {response.status_code}"
+    
+    except requests.exceptions.RequestException as e:
+        logger.error(f"HTTP request error: {str(e)}")
+        return f"❌ Network error: {str(e)}"
+    except Exception as e:
+        logger.error(f"Error generating AI response: {str(e)}")
+        return f"❌ Error generating response: {str(e)}"
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start command handler"""
     try:
@@ -460,6 +562,7 @@ async def send_article_for_labeling(update: Update, context: ContextTypes.DEFAUL
         [InlineKeyboardButton("📉 Negative", callback_data="negative")],
         [InlineKeyboardButton("😐 Neutral", callback_data="neutral")],
         [InlineKeyboardButton("⏭️ Skip", callback_data="skip")],
+        [InlineKeyboardButton("❓ Ask about this article", callback_data="ask_article")],
         [InlineKeyboardButton("🔄 Change Category", callback_data="change_category")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -505,6 +608,34 @@ async def handle_label(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         
         await query.edit_message_text(welcome_msg, reply_markup=reply_markup)
         return WAITING_FOR_CATEGORY
+    
+    # Handle ask about article request
+    if label == "ask_article":
+        # Get current article details
+        current_article = articles[current_index]
+        article_uri, title, body, url, category, published_date = current_article
+        
+        # Store article content for Q&A
+        context.user_data['current_article_content'] = {
+            'title': title,
+            'body': body,
+            'url': url,
+            'category': category,
+            'published_date': published_date
+        }
+        
+        # Send Q&A prompt
+        qa_msg = f"❓ **Ask about this article:**\n\n"
+        qa_msg += f"**{title}**\n\n"
+        qa_msg += f"You can ask questions like:\n"
+        qa_msg += f"• What are the key points?\n"
+        qa_msg += f"• Why is this significant?\n"
+        qa_msg += f"• What are the implications?\n"
+        qa_msg += f"• Who are the main players involved?\n\n"
+        qa_msg += f"**Type your question below:**"
+        
+        await query.edit_message_text(qa_msg, parse_mode='Markdown')
+        return WAITING_FOR_ARTICLE_QUESTION
     
     if label != "skip":
         # Save user's label for this article
@@ -674,25 +805,33 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         
         logger.info(f"User {user_id} asked: {user_question}")
         
-        # Send "thinking" message
-        thinking_msg = await update.message.reply_text("🤔 Let me analyze the recent news to answer your question...")
-        
-        # Get news context
-        news_context = get_recent_news_context(category=category, limit=10)
-        
-        # Debug: Log what articles we found
-        logger.info(f"Found {len(news_context)} articles for category '{category}'")
-        if news_context:
-            logger.info(f"Sample article titles: {[article[0][:50] for article in news_context[:3]]}")
-        
-        # Generate AI response
-        ai_response = generate_ai_response(user_question, news_context, category)
+        if category:
+            # Category-specific questions use database context
+            thinking_msg = await update.message.reply_text("🤔 Let me analyze the recent news to answer your question...")
+            
+            # Get news context
+            news_context = get_recent_news_context(category=category, limit=10)
+            
+            # Debug: Log what articles we found
+            logger.info(f"Found {len(news_context)} articles for category '{category}'")
+            if news_context:
+                logger.info(f"Sample article titles: {[article[0][:50] for article in news_context[:3]]}")
+            
+            # Generate AI response with database context
+            ai_response = generate_ai_response(user_question, news_context, category)
+            category_emoji = {"geopolitics": "🌍", "singapore": "🇸🇬"}.get(category, "📰")
+        else:
+            # General questions use AI's broader knowledge
+            thinking_msg = await update.message.reply_text("🤔 Let me think about that...")
+            
+            # Generate AI response without database context
+            ai_response = generate_general_ai_response(user_question)
+            category_emoji = "📰"
         
         # Delete thinking message and send response
         await thinking_msg.delete()
         
         # Format response
-        category_emoji = {"geopolitics": "🌍", "singapore": "🇸🇬"}.get(category, "📰")
         response_msg = f"{category_emoji} **Your Answer:**\n\n{ai_response}\n\n"
         response_msg += "💬 Ask another question or use /cancel to exit."
         
@@ -704,6 +843,86 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logger.error(f"Error handling question: {str(e)}")
         await update.message.reply_text("❌ Sorry, I couldn't process your question. Please try again.")
         return WAITING_FOR_QUESTION
+
+async def handle_article_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle user's question about a specific article"""
+    try:
+        user_question = update.message.text
+        user_id = context.user_data.get('user_id')
+        article_content = context.user_data.get('current_article_content')
+        
+        if not article_content:
+            await update.message.reply_text("❌ Article information not found. Please try again.")
+            return ConversationHandler.END
+        
+        logger.info(f"User {user_id} asked about article: {user_question}")
+        
+        # Send "thinking" message
+        thinking_msg = await update.message.reply_text("🤔 Let me analyze this article...")
+        
+        # Format article content for AI
+        formatted_article = f"""Title: {article_content['title']}
+
+Content: {article_content['body']}
+
+Category: {article_content['category']}
+Published: {article_content['published_date']}
+URL: {article_content['url']}"""
+        
+        # Generate AI response about the specific article
+        ai_response = generate_article_ai_response(user_question, formatted_article)
+        
+        # Delete thinking message and send response
+        await thinking_msg.delete()
+        
+        # Format response with back-to-labeling option
+        response_msg = f"❓ **Your Answer:**\n\n{ai_response}\n\n"
+        response_msg += "💬 Ask another question about this article, or use the buttons below:"
+        
+        # Create keyboard to return to labeling or ask more questions
+        keyboard = [
+            [InlineKeyboardButton("🔙 Back to Labeling", callback_data="back_to_labeling")],
+            [InlineKeyboardButton("❓ Ask Another Question", callback_data="ask_another")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(response_msg, reply_markup=reply_markup, parse_mode='Markdown')
+        
+        return WAITING_FOR_ARTICLE_QUESTION
+        
+    except Exception as e:
+        logger.error(f"Error handling article question: {str(e)}")
+        await update.message.reply_text("❌ Sorry, I couldn't process your question. Please try again.")
+        return WAITING_FOR_ARTICLE_QUESTION
+
+async def handle_article_qa_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle callbacks in article Q&A mode"""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "back_to_labeling":
+        # Return to the article labeling interface
+        articles = context.user_data.get('articles', [])
+        current_index = context.user_data.get('current_index', 0)
+        
+        if current_index < len(articles):
+            # Restore the article for labeling
+            return await send_article_for_labeling(update, context)
+        else:
+            await query.edit_message_text("All articles have been processed! Thank you.")
+            return ConversationHandler.END
+    
+    elif query.data == "ask_another":
+        article_content = context.user_data.get('current_article_content')
+        if article_content:
+            qa_msg = f"❓ **Ask another question about:**\n\n"
+            qa_msg += f"**{article_content['title']}**\n\n"
+            qa_msg += f"**Type your question below:**"
+            
+            await query.edit_message_text(qa_msg, parse_mode='Markdown')
+            return WAITING_FOR_ARTICLE_QUESTION
+    
+    return WAITING_FOR_ARTICLE_QUESTION
 
 async def show_recent_articles_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show recent articles in database for debugging"""
@@ -946,7 +1165,11 @@ def main():
             entry_points=[CommandHandler('start', start)],
             states={
                 WAITING_FOR_CATEGORY: [CallbackQueryHandler(handle_category_selection)],
-                WAITING_FOR_LABEL: [CallbackQueryHandler(handle_label)]
+                WAITING_FOR_LABEL: [CallbackQueryHandler(handle_label)],
+                WAITING_FOR_ARTICLE_QUESTION: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_article_question),
+                    CallbackQueryHandler(handle_article_qa_callback)
+                ]
             },
             fallbacks=[CommandHandler('cancel', cancel)]
         )
