@@ -360,8 +360,14 @@ def generate_article_ai_response(user_question, article_content):
     if not OPENAI_API_KEY:
         return "❌ AI service is not available. Please contact the administrator."
     
-    try:
-        prompt = f"""You are a helpful news analyst. Based on the following news article, please answer the user's question about it.
+    # Limit article content to prevent oversized requests
+    max_content_length = 2000
+    if len(article_content) > max_content_length:
+        article_content = article_content[:max_content_length] + "...[content truncated]"
+    
+    for attempt in range(3):  # Retry up to 3 times
+        try:
+            prompt = f"""You are a helpful news analyst. Based on the following news article, please answer the user's question about it.
 
 News Article:
 {article_content}
@@ -370,42 +376,60 @@ User Question: {user_question}
 
 Please provide a helpful answer based on the article content above."""
 
-        # Make HTTP request to OpenAI API
-        headers = {
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
-            "Content-Type": "application/json"
-        }
+            # Make HTTP request to OpenAI API
+            headers = {
+                "Authorization": f"Bearer {OPENAI_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            
+            data = {
+                "model": "gpt-3.5-turbo",
+                "messages": [
+                    {"role": "system", "content": "You are a helpful news analyst assistant."},
+                    {"role": "user", "content": prompt}
+                ],
+                "max_tokens": 400,
+                "temperature": 0.7
+            }
+            
+            response = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers=headers,
+                json=data,
+                timeout=15  # Reduced timeout
+            )
+            
+            if response.status_code == 200:
+                response_data = response.json()
+                return response_data['choices'][0]['message']['content'].strip()
+            else:
+                logger.error(f"OpenAI API error (attempt {attempt + 1}): {response.status_code} - {response.text}")
+                if attempt == 2:  # Last attempt
+                    return f"❌ AI service error after 3 attempts. Please try again later."
         
-        data = {
-            "model": "gpt-3.5-turbo",
-            "messages": [
-                {"role": "system", "content": "You are a helpful news analyst assistant."},
-                {"role": "user", "content": prompt}
-            ],
-            "max_tokens": 500,
-            "temperature": 0.7
-        }
+        except requests.exceptions.Timeout:
+            logger.error(f"Request timeout (attempt {attempt + 1})")
+            if attempt == 2:
+                return "❌ Request timed out. The article might be too long. Please try a simpler question."
+        except requests.exceptions.ConnectionError:
+            logger.error(f"Connection error (attempt {attempt + 1})")
+            if attempt == 2:
+                return "❌ Connection failed. Please check your internet connection and try again."
+        except requests.exceptions.RequestException as e:
+            logger.error(f"HTTP request error (attempt {attempt + 1}): {str(e)}")
+            if attempt == 2:
+                return "❌ Network error. Please try again in a moment."
+        except Exception as e:
+            logger.error(f"Error generating AI response (attempt {attempt + 1}): {str(e)}")
+            if attempt == 2:
+                return f"❌ Unexpected error. Please try again later."
         
-        response = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers=headers,
-            json=data,
-            timeout=30
-        )
-        
-        if response.status_code == 200:
-            response_data = response.json()
-            return response_data['choices'][0]['message']['content'].strip()
-        else:
-            logger.error(f"OpenAI API error: {response.status_code} - {response.text}")
-            return f"❌ Error from AI service: {response.status_code}"
+        # Wait before retry (except on last attempt)
+        if attempt < 2:
+            import time
+            time.sleep(1)
     
-    except requests.exceptions.RequestException as e:
-        logger.error(f"HTTP request error: {str(e)}")
-        return f"❌ Network error: {str(e)}"
-    except Exception as e:
-        logger.error(f"Error generating AI response: {str(e)}")
-        return f"❌ Error generating response: {str(e)}"
+    return "❌ Service temporarily unavailable. Please try again later."
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start command handler"""
